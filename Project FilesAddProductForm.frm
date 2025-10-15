@@ -16,10 +16,6 @@ Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
 
 
-Private Sub Label1_Click()
-
-End Sub
-
 Private Sub txtDescription_Change()
     Dim charCount As Long
     charCount = Len(Me.txtDescription.value)
@@ -89,8 +85,8 @@ Private Sub btnAdd_Click()
     description = Trim(Me.txtDescription.value)
 
     ' Validate numeric input for Batch Size
-    If IsNumeric(Me.txtBatchSize.value) And val(Me.txtBatchSize.value) > 0 Then
-        batchSize = val(Me.txtBatchSize.value)
+    If IsNumeric(Me.txtBatchSize.value) And CDbl(Me.txtBatchSize.value) > 0 Then
+        batchSize = CDbl(Me.txtBatchSize.value)
     Else
         MsgBox "Please enter a valid numeric value greater than 0 for Batch Size.", vbExclamation
         Me.txtBatchSize.SetFocus
@@ -98,8 +94,8 @@ Private Sub btnAdd_Click()
     End If
 
     ' Validate numeric input for Annual Order Quantity
-    If IsNumeric(Me.txtAOQ.value) And val(Me.txtAOQ.value) > 0 Then
-        aoq = val(Me.txtAOQ.value)
+    If IsNumeric(Me.txtAOQ.value) And CDbl(Me.txtAOQ.value) > 0 Then
+        aoq = CDbl(Me.txtAOQ.value)
     Else
         MsgBox "Please enter a valid numeric value greater than 0 for Annual Order Quantity.", vbExclamation
         Me.txtAOQ.SetFocus
