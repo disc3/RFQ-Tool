@@ -1,7 +1,7 @@
 VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmCustomerView 
    Caption         =   "Search Customer List for surcharge bonus"
-   ClientHeight    =   7320
+   ClientHeight    =   7920
    ClientLeft      =   120
    ClientTop       =   465
    ClientWidth     =   17655
@@ -23,6 +23,18 @@ Private m_vData As Variant
 Private m_ws As Worksheet
 ' HINWEIS: Auf 10 Spalten (A-J) gesetzt
 Const M_LCOLCOUNT As Long = 10
+
+
+
+
+
+Private Sub lblCustName_Click()
+
+End Sub
+
+Private Sub lblTPDiscount_Click()
+
+End Sub
 
 ' --- Initialisierungs-Ereignis ---
 Private Sub UserForm_Initialize()
@@ -101,9 +113,7 @@ Private Sub ApplyFilter(ByVal sFilterTerm As String)
     For i = 1 To UBound(m_vData, 1)
         bRowAdded = False
         
-        ' *** ÄNDERUNG: ***
-        ' Wir durchsuchen jetzt NUR die Spalten 3, 4, 5 und 6
-        ' (entspricht Spalte C, D, E und F)
+        ' Wir durchsuchen die Spalten 3 bis 6 (C, D, E, F)
         For j = 3 To 6
             
             ' Wenn der Suchbegriff leer ist, zeige alles an.
@@ -122,12 +132,12 @@ Private Sub ApplyFilter(ByVal sFilterTerm As String)
                 lMatchCount = lMatchCount + 1
                 
                 ' Kopiere die *gesamte* Zeile (alle 10 Spalten)
-                Dim k_ As Long ' (anderer Variablenname als oben)
+                Dim k_ As Long
                 For k_ = 1 To M_LCOLCOUNT
                     vFiltered(lMatchCount, k_) = m_vData(i, k_)
                 Next k_
                 
-                ' Verlasse die innere Spalten-Schleife (j), da wir die Zeile schon haben
+                ' Verlasse die innere Spalten-Schleife (j)
                 Exit For
             End If
             
@@ -137,27 +147,50 @@ Private Sub ApplyFilter(ByVal sFilterTerm As String)
     ' 2. Leere die ListBox, bevor wir sie neu füllen
     Me.lstData.Clear
     
-' 3. Fülle die ListBox mit den gefilterten Ergebnissen
+    ' 3. Fülle die ListBox mit den gefilterten Ergebnissen
     If lMatchCount > 0 Then
-        ' *** KORREKTUR FÜR LAUFZEITFEHLER 9 ***
-        ' ReDim Preserve kann nicht die *erste* Dimension (die Zeilen)
-        ' eines 2D-Arrays ändern.
-        ' Wir erstellen stattdessen ein neues Array (vFinal) in der
-        ' exakt richtigen Größe (lMatchCount x M_LCOLCOUNT).
-        
+        ' Erstelle das finale Array in der exakt richtigen Größe
         Dim vFinal() As Variant
         ReDim vFinal(1 To lMatchCount, 1 To M_LCOLCOUNT)
         
         Dim x As Long, y As Long
         
         ' Wir kopieren die gefundenen Zeilen aus vFiltered in vFinal
-        For x = 1 To lMatchCount ' Schleife für Zeilen (in deinem Fall 1 bis 2)
-            For y = 1 To M_LCOLCOUNT ' Schleife für Spalten (1 bis 10)
-                vFinal(x, y) = vFiltered(x, y)
+        For x = 1 To lMatchCount ' Schleife für Zeilen
+            For y = 1 To M_LCOLCOUNT ' Schleife für Spalten
+                
+                ' *** NEU: Datenformatierung beim Kopieren ***
+                Select Case y
+                    Case 7 ' Spalte G (Euro)
+                        ' Prüfen, ob es eine Zahl ist
+                        If IsNumeric(vFiltered(x, y)) Then
+                            ' Format: "€"-Symbol, Tausenderpunkt, keine Dezimalen
+                            vFinal(x, y) = Format(vFiltered(x, y), "€ #,##0")
+                        Else
+                            ' Falls Text (z.B. "N/A"), einfach übernehmen
+                            vFinal(x, y) = vFiltered(x, y)
+                        End If
+                        
+                    Case 9, 10 ' Spalte I und J (Prozent)
+                        If IsNumeric(vFiltered(x, y)) Then
+                            ' Format: "0.#%"
+                            ' Zeigt "50%" (bei 0.5) oder "50,1%" (bei 0.501)
+                            ' Passt sich automatisch an 0 oder 1 Dezimale an.
+                            vFinal(x, y) = Format(vFiltered(x, y), "0.0%")
+                        Else
+                            vFinal(x, y) = vFiltered(x, y)
+                        End If
+                        
+                    Case Else ' Alle anderen Spalten
+                        ' Normal kopieren
+                        vFinal(x, y) = vFiltered(x, y)
+                End Select
+                ' *** ENDE DER FORMATIERUNG ***
+                
             Next y
         Next x
         
-        ' Weise das *neue*, korrekt dimensionierte Array der ListBox zu
+        ' Weise das *neue*, formatierte Array der ListBox zu
         Me.lstData.List = vFinal
         
     Else
