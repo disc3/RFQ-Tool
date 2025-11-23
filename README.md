@@ -74,6 +74,7 @@ The application relies heavily on **Excel ListObjects (Tables)** for data storag
     * Use `On Error Resume Next` **only** for specific, contained checks (e.g., checking if a Dictionary key exists or if an SAP object is active) and reset immediately with `On Error GoTo 0`.
 3.  **Variable Naming:** Use CamelCase. Prefix variables to indicate type where helpful (e.g., `wsTarget` for Worksheet, `tblBOM` for ListObject).
 4.  **JSON Handling:** Use the existing `JsonEscape` function in `PowerAutomateAPI` for any string being sent to the web API.
+5. **Use Configuration Class** When using frequently referenced tables such as BOMDefinition or "1. BOM Definition", always import these terms from the config class and declare the variables as option explicit variables and then implement a Initialize function that loads the values via the configuration class.
 
 ### 4.3. SAP Scripting Rules
 1.  **Session Check:** Always check `If Not IsObject(SAPSession)` before executing script lines.
