@@ -26,10 +26,11 @@ Public Sub RunServoCalculation()
     Set tblBOM = wsBom.ListObjects("BOMDefinition")
 
     Dim selectedProduct As String
-    selectedProduct = Trim(wsBom.Range("F11").value)
+    selectedProduct = Trim(wsBom.Range("F11").Value)
     If selectedProduct = "" Then
         MsgBox "Please select a product in cell F11 first.", vbExclamation
-        GoTo CleanExit ' Springt zum Aufräumen
+        
+        GoTo CleanExit
     End If
 
     ' --- Kabelauswahl (UserForm bleibt gleich, aber der Aufruf ist hier) ---
@@ -48,7 +49,7 @@ Public Sub RunServoCalculation()
     
     ' --- Daten in Arrays einlesen (Einmaliger Lesevorgang) ---
     Dim bomData As Variant
-    bomData = tblBOM.DataBodyRange.value ' Gesamte Tabelle in ein Array lesen
+    bomData = tblBOM.DataBodyRange.Value ' Gesamte Tabelle in ein Array lesen
 
     ' Spaltenindizes finden, um flexibel zu bleiben
     Dim prodCol As Long, matCol As Long, qtyCol As Long, copperCol As Long, netWeightCol As Long, descCol As Long, erpCol As Long
@@ -83,7 +84,7 @@ Public Sub RunServoCalculation()
                 erpPN = bomData(i, erpCol)
             Else
                 ' Gewicht der anderen Komponenten aufsummieren
-                otherComponentWeight = otherComponentWeight + val(bomData(i, netWeightCol))
+                otherComponentWeight = otherComponentWeight + CDbl(bomData(i, netWeightCol))
             End If
         End If
     Next i
@@ -95,7 +96,7 @@ Public Sub RunServoCalculation()
 
     ' --- SIMULATION 1: 0.1m Kabel + Arbeit ---
     ' Nur die eine benötigte Zelle ändern
-    tblBOM.DataBodyRange.Cells(cableRowIndex, qtyCol).value = 0.1
+    tblBOM.DataBodyRange.Cells(cableRowIndex, qtyCol).Value = 0.1
     application.Calculate ' Neuberechnung durchführen
     Dim labConPrice As Double
     labConPrice = GetPriceFromSales(wsSales, selectedProduct, "Selling Price/ Transfer Price Copper Base / 1 piece")
@@ -105,10 +106,10 @@ Public Sub RunServoCalculation()
     Call ZeroRoutineQuantities(selectedProduct)
     For Each i In originalQuantities.Keys
         If i <> cableRowIndex Then
-            tblBOM.DataBodyRange.Cells(i, qtyCol).value = 0
+            tblBOM.DataBodyRange.Cells(i, qtyCol).Value = 0
         End If
     Next i
-    tblBOM.DataBodyRange.Cells(cableRowIndex, qtyCol).value = 1
+    tblBOM.DataBodyRange.Cells(cableRowIndex, qtyCol).Value = 1
     
     application.Calculate ' Neuberechnung durchführen
     Dim cableCostPerM As Double
@@ -117,7 +118,7 @@ Public Sub RunServoCalculation()
     ' --- Wiederherstellung ---
     Call RestoreRoutineQuantities
     For Each i In originalQuantities.Keys
-        tblBOM.DataBodyRange.Cells(i, qtyCol).value = originalQuantities(i)
+        tblBOM.DataBodyRange.Cells(i, qtyCol).Value = originalQuantities(i)
     Next i
     application.Calculate ' Endgültigen Zustand wiederherstellen
 
@@ -155,7 +156,7 @@ Public Sub RunServoCalculation()
     Next lengthVal
 
     ' --- Array in einer einzigen Operation auf das Blatt schreiben ---
-    wsServo.Range("A4").Resize(UBound(outputData, 1), 9).value = outputData
+    wsServo.Range("A4").Resize(UBound(outputData, 1), 9).Value = outputData
     ' Da die Spalten nicht zusammenhängend sind, schreiben wir den zweiten Teil separat
     ' Dafür müssen wir einen Trick anwenden und die Daten in ein zweites Array kopieren
     Dim outputDataPart2() As Variant
@@ -170,7 +171,7 @@ Public Sub RunServoCalculation()
         outputDataPart2(i, 7) = outputData(i, 17)
         outputDataPart2(i, 8) = outputData(i, 18)
     Next i
-    wsServo.Range("K4").Resize(UBound(outputDataPart2, 1), UBound(outputDataPart2, 2)).value = outputDataPart2
+    wsServo.Range("K4").Resize(UBound(outputDataPart2, 1), UBound(outputDataPart2, 2)).Value = outputDataPart2
     
     wsServo.Activate
     
@@ -214,9 +215,9 @@ Function GetPriceFromSales(wsSales As Worksheet, product As String, columnHeader
         GetPriceFromSales = 0
         Exit Function
     End If
-    Debug.Print wsSales.Cells(14 + rowIndex, colIndex).value
+    Debug.Print wsSales.Cells(14 + rowIndex, colIndex).Value
     ' Wert direkt aus der Zelle auslesen
-    GetPriceFromSales = CDbl(wsSales.Cells(14 + rowIndex, colIndex).value)
+    GetPriceFromSales = CDbl(wsSales.Cells(14 + rowIndex, colIndex).Value)
 End Function
 
 Sub ZeroRoutineQuantities(product As String)
@@ -237,7 +238,7 @@ Sub ZeroRoutineQuantities(product As String)
 
     n = 0
     For i = 1 To tbl.DataBodyRange.Rows.Count
-        If Trim(tbl.DataBodyRange.Cells(i, tbl.ListColumns("Product Number").Index).value) = product Then
+        If Trim(tbl.DataBodyRange.Cells(i, tbl.ListColumns("Product Number").Index).Value) = product Then
             n = n + 1
         End If
     Next i
@@ -247,11 +248,11 @@ Sub ZeroRoutineQuantities(product As String)
 
     n = 0
     For i = 1 To tbl.DataBodyRange.Rows.Count
-        If Trim(tbl.DataBodyRange.Cells(i, tbl.ListColumns("Product Number").Index).value) = product Then
+        If Trim(tbl.DataBodyRange.Cells(i, tbl.ListColumns("Product Number").Index).Value) = product Then
             n = n + 1
             routineRowIndexes(n) = i
-            originalRoutineQuantities(n) = tbl.DataBodyRange.Cells(i, qtyCol).value
-            tbl.DataBodyRange.Cells(i, qtyCol).value = 0
+            originalRoutineQuantities(n) = tbl.DataBodyRange.Cells(i, qtyCol).Value
+            tbl.DataBodyRange.Cells(i, qtyCol).Value = 0
         End If
     Next i
 End Sub
@@ -265,7 +266,7 @@ Sub RestoreRoutineQuantities()
 
     If Not IsEmpty(originalRoutineQuantities) Then
         For i = LBound(routineRowIndexes) To UBound(routineRowIndexes)
-            tbl.DataBodyRange.Cells(routineRowIndexes(i), tbl.ListColumns("Number of operations").Index).value = originalRoutineQuantities(i)
+            tbl.DataBodyRange.Cells(routineRowIndexes(i), tbl.ListColumns("Number of operations").Index).Value = originalRoutineQuantities(i)
         Next i
     End If
 End Sub

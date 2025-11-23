@@ -19,7 +19,8 @@ Private Sub btnAddComponent_Click()
     Dim wsDestination As Worksheet
     Dim tblDestination As ListObject
     Dim newRow As ListRow
-    Dim pieces As String
+    Dim piecesStr As String
+    Dim piecesDbl As Double
     Dim price As Double
     Dim wsMain As Worksheet
     Dim newMaterialName As String
@@ -41,42 +42,63 @@ Private Sub btnAddComponent_Click()
     Set tblPlants = wsPlantVariables.ListObjects("PlantVariables")
 
     ' --- Mandatory fields ---
-    If Trim(Me.txtManufacturer.value) = "" Then
+    If Trim(Me.txtManufacturer.Value) = "" Then
         MsgBox "Manufacturer is required. Please fill it in.", vbExclamation
         Me.txtManufacturer.SetFocus
         Exit Sub
     End If
 
-    If Trim(Me.txtManufacturerPartNumber.value) = "" Then
+    If Trim(Me.txtManufacturerPartNumber.Value) = "" Then
         MsgBox "Manufacturer Part Number is required. Please fill it in.", vbExclamation
         Me.txtManufacturerPartNumber.SetFocus
         Exit Sub
     End If
 
     ' Pieces
-    pieces = InputBox("Enter the number of pieces needed:", "Number of Pieces")
-    pieces = FixDecimalSeparator(pieces)
-    Debug.Print "Number of pieces " & pieces
+    piecesStr = InputBox("Enter the number of pieces needed:", "Number of Pieces")
+    If IsNumeric(piecesStr) Then
+        piecesDbl = CDbl(piecesStr)
+        If piecesDbl <= 0 Then
+            MsgBox "Please enter a numeric value greater than 0 for 'Pieces'.", vbExclamation, "Invalid Input"
+            Exit Sub
+        End If
+    Else
+        MsgBox "The value entered for 'Pieces' is not a valid number.", vbExclamation, "Invalid Input"
+        Exit Sub
+    End If
+    Debug.Print "Number of pieces " & piecesDbl
 
     ' Price
-    price = CDbl(Me.txtPrice.value)
+    If IsNumeric(Me.txtPrice.Value) Then
+        price = CDbl(Me.txtPrice.Value)
+        If price <= 0 Then
+            MsgBox "Please enter a numeric value greater than 0 for 'Price'.", vbExclamation, "Invalid Input"
+            Exit Sub
+        End If
+    ElseIf Me.txtPrice.Value = "" Then
+        ' do later
+    Else
+        MsgBox "The value entered for 'Price' is not a valid number.", vbExclamation, "Invalid Input"
+        Exit Sub
+    End If
+    Debug.Print "Price " & price
 
     ' Destination
     Set wsMain = ThisWorkbook.Sheets("1. BOM Definition")
     Set wsDestination = ThisWorkbook.Sheets("1. BOM Definition")
     Set tblDestination = wsDestination.ListObjects("BOMDefinition")
 
-    plantCode = wsMain.Range("C9").value
+    plantCode = wsMain.Range("C9").Value
     plantName = "Unknown"
     For Each plantRow In tblPlants.ListRows
-        If Trim$(CStr(plantRow.Range(tblPlants.ListColumns("Plant").Index).value)) = Trim$(CStr(plantCode)) Then
-            plantName = plantRow.Range(tblPlants.ListColumns("Plant Name").Index).value
+        If Trim$(CStr(plantRow.Range(tblPlants.ListColumns("Plant").Index).Value)) = Trim$(CStr(plantCode)) Then
+            plantName = plantRow.Range(tblPlants.ListColumns("Plant Name").Index).Value
             Exit For
         End If
     Next plantRow
 
     ' ===================== NAMING: <ProductNumber>-New# =====================
-    productNumber = CStr(wsMain.Range("F11").value)
+    productNumber = CStr(wsMain.Range("F11").Value)
     prefix = productNumber & "-New"
     pfxLen = Len(prefix)
 
@@ -84,7 +106,7 @@ Private Sub btnAddComponent_Click()
     Set materialRange = tblDestination.ListColumns("Material").DataBodyRange
     If Not materialRange Is Nothing Then
         For Each cell In materialRange
-            txt = CStr(cell.value)
+            txt = CStr(cell.Value)
             If Len(txt) >= pfxLen Then
                 If LCase$(Left$(txt, pfxLen)) = LCase$(prefix) Then
                     sufTxt = Mid$(txt, pfxLen + 1)
@@ -105,28 +127,30 @@ Private Sub btnAddComponent_Click()
 
     ' Reuse single empty first row or add a new row
     If tblDestination.ListRows.Count = 1 And _
-       IsEmpty(tblDestination.ListRows(1).Range(tblDestination.ListColumns("Material").Index).value) Then
+       IsEmpty(tblDestination.ListRows(1).Range(tblDestination.ListColumns("Material").Index).Value) Then
         Set newRow = tblDestination.ListRows(1)
     Else
         Set newRow = tblDestination.ListRows.Add(AlwaysInsert:=True)
     End If
 
     ' Fill row
-    newRow.Range.Cells(1, tblDestination.ListColumns("Base unit of component").Index).value = Me.txtBaseUnit.value
-    newRow.Range.Cells(1, tblDestination.ListColumns("Price per 1 unit").Index).value = price
-    newRow.Range.Cells(1, tblDestination.ListColumns("Condition Currency").Index).value = "EUR"
-    newRow.Range.Cells(1, tblDestination.ListColumns("Product Number").Index).value = productNumber
-    newRow.Range.Cells(1, tblDestination.ListColumns("Plant").Index).value = wsMain.Range("C9").value
-    newRow.Range.Cells(1, tblDestination.ListColumns("Plant name").Index).value = plantName
-    newRow.Range.Cells(1, tblDestination.ListColumns("Material Description").Index).value = Me.txtDescription.value
-    newRow.Range.Cells(1, tblDestination.ListColumns("Quantity").Index).value = CDbl(pieces)
-    newRow.Range.Cells(1, tblDestination.ListColumns("New component").Index).value = "NEW"
-    newRow.Range.Cells(1, tblDestination.ListColumns("Manufacturer").Index).value = Me.txtManufacturer.Text
-    newRow.Range.Cells(1, tblDestination.ListColumns("Manufacturer Part Number").Index).value = Me.txtManufacturerPartNumber.Text
+    newRow.Range.Cells(1, tblDestination.ListColumns("Base unit of component").Index).Value = Me.txtBaseUnit.Value
+    If Me.txtPrice.Value <> "" Then
+        newRow.Range.Cells(1, tblDestination.ListColumns("Price per 1 unit").Index).Value = price
+    End If
+    newRow.Range.Cells(1, tblDestination.ListColumns("Condition Currency").Index).Value = "EUR"
+    newRow.Range.Cells(1, tblDestination.ListColumns("Product Number").Index).Value = productNumber
+    newRow.Range.Cells(1, tblDestination.ListColumns("Plant").Index).Value = wsMain.Range("C9").Text
+    newRow.Range.Cells(1, tblDestination.ListColumns("Plant name").Index).Value = plantName
+    newRow.Range.Cells(1, tblDestination.ListColumns("Material description").Index).Value = Me.txtDescription.Value
+    newRow.Range.Cells(1, tblDestination.ListColumns("Quantity").Index).Value = piecesDbl
+    newRow.Range.Cells(1, tblDestination.ListColumns("New component").Index).Value = "NEW"
+    newRow.Range.Cells(1, tblDestination.ListColumns("Manufacturer").Index).Value = Me.txtManufacturer.Text
+    newRow.Range.Cells(1, tblDestination.ListColumns("Manufacturer Part Number").Index).Value = Me.txtManufacturerPartNumber.Text
     
     ' Set Material value
     materialColIdx = tblDestination.ListColumns("Material").Index
-    newRow.Range.Cells(1, materialColIdx).value = newMaterialName
+    newRow.Range.Cells(1, materialColIdx).Value = newMaterialName
 
     ' === HIGHLIGHT the Material cell in yellow (pre-format) ===
     newRow.Range.Cells(1, materialColIdx).Interior.Color = vbYellow
@@ -156,4 +180,3 @@ Private Sub btnCancel_Click()
     ' Close the form without doing anything
     Unload Me
 End Sub
-

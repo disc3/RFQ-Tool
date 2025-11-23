@@ -144,7 +144,11 @@ Private Sub btnFinalizeVariant_Click()
     ' and errors related to table boundaries, expansion, and state.
     If UBound(newRowsData, 1) > 0 Then
         Dim newRow As ListRow
-        
+        Dim rowCounter As Long
+        rowCounter = UBound(newRowsData, 1)
+        If rowCounter <= 1 Then
+            rowCounter = 1
+        End If
         For r = 1 To UBound(newRowsData, 1)
             ' Step 4a: Add a new, blank row to the table. Excel handles all the complexity.
             Set newRow = tbl.ListRows.Add(AlwaysInsert:=True)
@@ -319,13 +323,13 @@ Private Function HasFormula(ByVal cellFormula As Variant) As Boolean
     End If
 End Function
 
-Private Function TryParseDouble(ByVal Text As String, ByRef Result As Double) As Boolean
+Private Function TryParseDouble(ByVal Text As String, ByRef result As Double) As Boolean
     ' Robustly converts a string to a Double, regardless of regional settings for decimals.
     Dim normalizedText As String
     normalizedText = Replace(Trim(Text), ",", ".") ' Standardize to period
     
     If IsNumeric(normalizedText) Then
-        Result = CDbl(normalizedText)
+        result = CDbl(normalizedText)
         TryParseDouble = True
     End If
 End Function

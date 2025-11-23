@@ -37,8 +37,8 @@ Private Sub FixBOMDefinitionDecimalSeparators()
         
         If Not col Is Nothing Then
             For Each cell In col.DataBodyRange
-                If Not IsEmpty(cell.value) And VarType(cell.value) = vbString Then
-                    cell.value = FixDecimalSeparator(cell.value)
+                If Not IsEmpty(cell.Value) And VarType(cell.Value) = vbString Then
+                    cell.Value = FixDecimalSeparator(cell.Value)
                 End If
             Next cell
         End If
@@ -65,8 +65,8 @@ Private Sub FixSelectedRoutinesDecimalSeparators()
         If Not col Is Nothing Then
             If Not col.DataBodyRange Is Nothing Then
                 For Each cell In col.DataBodyRange
-                    If Not IsEmpty(cell.value) And VarType(cell.value) = vbString Then
-                        cell.value = FixDecimalSeparator(cell.value)
+                    If Not IsEmpty(cell.Value) And VarType(cell.Value) = vbString Then
+                        cell.Value = FixDecimalSeparator(cell.Value)
                     End If
                 Next cell
             End If
@@ -228,20 +228,22 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
     Set wsProducts = ThisWorkbook.Sheets("Final Products") ' <-- Name des Blattes mit der Produktliste
     Set tblFinalProducts = wsProducts.ListObjects("FinalProductList")
     
-    Set wsData = ThisWorkbook.Sheets(associatedSheetname)         ' <-- Name des Blattes mit der Datentabelle
-    Set tblAssociatedData = wsData.ListObjects("BOMDefinition") ' <-- Name der zu formatierenden Tabelle
+    Set wsData = ThisWorkbook.Sheets(associatedSheetname)       ' <-- Name des Blattes mit der Datentabelle
+    Set tblAssociatedData = wsData.ListObjects(associatedTableName) ' <-- Name der zu formatierenden Tabelle
     
     ' Definiere deine ZWEI abwechselnden Grundfarben
-    baseColor1 = RGB(235, 241, 250)    ' Farbe für ungerade Produkte (1, 3, ...)
+    baseColor1 = RGB(235, 241, 250)   ' Farbe für ungerade Produkte (1, 3, ...)
     baseColor2 = RGB(250, 243, 233)   ' Farbe für gerade Produkte (2, 4, ...)
     
     ' Gib den Namen der Spalte in der Zieltabelle an, die die Produktnamen enthält.
     Set productColumn = tblAssociatedData.ListColumns("ProductNumberText") ' <-- Spaltenname anpassen
     ' *** ENDE ANPASSUNG ***
 
-    ' 1. Alle bestehenden Farben aus der Zieltabelle entfernen
+    ' 1. Alle bestehenden Farben aus der Zieltabelle entfernen und eventuell bestehenden Filter zurücksetzen
     tblAssociatedData.DataBodyRange.Interior.Color = xlNone
-    If wsData.AutoFilterMode Then wsData.AutoFilter.ShowAllData
+    If tblAssociatedData.AutoFilter.FilterMode Then
+        tblAssociatedData.AutoFilter.ShowAllData
+    End If
     
     ' Zähler für die Produktposition initialisieren
     productIndex = 1
@@ -260,17 +262,22 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
         shadeColor = LightenColor(currentColor, 0.6)
         
         ' 4. Formatiere die zugehörigen Zeilen in der Zieltabelle
-        FormatRowsForProduct tblAssociatedData, productColumn.Index, productCell.value, currentColor, shadeColor
+        FormatRowsForProduct tblAssociatedData, productColumn.Index, productCell.Value, currentColor, shadeColor
         
         ' Zähler für das nächste Produkt erhöhen
         productIndex = productIndex + 1
         
     Next productCell
     
-    ' Filter am Ende auf dem Datenblatt sicherheitshalber entfernen
-    On Error Resume Next
-    wsData.AutoFilter.ShowAllData
-    On Error GoTo 0
+    ' =================================================
+    ' *** NEUER, STABILERER CODE ZUM ENTFERNEN DES FILTERS ***
+    ' Prüfe, ob die Tabelle überhaupt gefiltert ist (FilterMode = True)
+    ' und entferne den Filter nur dann. Das ist sicherer als "On Error Resume Next".
+    ' =================================================
+    If tblAssociatedData.AutoFilter.FilterMode Then
+        tblAssociatedData.AutoFilter.ShowAllData
+    End If
+    
     application.ScreenUpdating = True
 End Sub
 
