@@ -141,15 +141,20 @@ Sub DeleteAllProducts()
                 tblProducts.DataBodyRange.offset(1, 0).Resize(tblProducts.ListRows.Count - 1).Rows.Delete
             End If
             ' Clear contents of the first row to leave an empty row
-            tblProducts.ListRows(1).Range.ClearContents
+            tblProducts.DataBodyRange.SpecialCells(xlCellTypeConstants).ClearContents
         End If
 
         ' Call the function to clear selected components and routines
+        application.EnableEvents = False
+        application.DisplayAlerts = False
+        application.ScreenUpdating = False
         ClearSelectedComponentsTable
         ClearSelectedRoutinesTable
         ClearProjectDataColumns
         ClearMassUploadTable
-
+        application.DisplayAlerts = True
+        application.EnableEvents = True
+        application.ScreenUpdating = True
         ' Delete generated sheets based on "Output Routing" and "Output BOM" columns in "PlantExportFormats"
         On Error Resume Next ' Suppress errors if sheets do not exist
         For Each plantRow In tblPlantFormats.ListRows
@@ -185,9 +190,10 @@ Sub DeleteAllProducts()
         ThisWorkbook.Sheets("2. Routines").Range("D6").ClearContents
         
         ' Clear the statuses for customer and purchasing clarification
-        ThisWorkbook.Sheets("3. Clarification Validation").Range("E6:G23").ClearContents
-        ThisWorkbook.Sheets("3. Clarification Validation").Range("O14:O24").ClearContents
-        ThisWorkbook.Sheets("3. Clarification Validation").Range("O14:O24").Interior.ColorIndex = xlNone ' Reset the interior color to transparent
+        ThisWorkbook.Sheets("3. Clarification Validation").Range("E6:G30").ClearContents
+        ThisWorkbook.Sheets("3. Clarification Validation").Range("L4:P4").ClearContents
+        ThisWorkbook.Sheets("3. Clarification Validation").Range("O14:O26").ClearContents
+        ThisWorkbook.Sheets("3. Clarification Validation").Range("O14:O26").Interior.ColorIndex = xlNone ' Reset the interior color to transparent
         
         ' Clear validation after deleting all products
         
@@ -201,7 +207,7 @@ Sub DeleteAllProducts()
         ThisWorkbook.Sheets("4. Sales Calculation (Internal)").Range("N1").ClearContents
         
         ' Call the UpdateProductDropdown to refresh the dropdown in Product Specification
-        UpdateProductDropdown
+        'UpdateProductDropdown
         
         ' Clear the BOM Exporter sheet
         ThisWorkbook.Sheets("Template_BOM_Connect").Range("A3:X999").ClearContents
