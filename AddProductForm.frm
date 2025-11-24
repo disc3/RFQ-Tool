@@ -205,13 +205,7 @@ Private Sub btnAdd_Click()
         .Range(tblProducts.ListColumns("ProductNumberText").Index).Formula = "=[@[Product Number]]"
     End With
 
-    ' --- Post-Addition Tasks ---
-    ' RESTORED: This call to an external sub was missing and is critical for the first product's setup.
-    If isFirstMeaningfulProduct Then
-        Call AddFirstProduct
-        ThisWorkbook.Sheets("1. BOM Definition").Range("F11").Value = product
-        ThisWorkbook.Sheets("2. Routines").Range("D6").Value = product
-    End If
+
     
     ' Clear form fields for next entry
     Me.txtProduct.Value = ""
