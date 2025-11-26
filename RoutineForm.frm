@@ -573,139 +573,241 @@ End Sub
 
 
 Private Sub CopyRoutinesButton_Click()
-    Dim wsRoutinesDB As Worksheet
-    Dim tblRoutinesDB As ListObject
-    Dim tblSelectedRoutines As ListObject
-    Dim wsSelectedRoutines As Worksheet
-    Dim selectedPlant As String
-    Dim selectedProduct As String
-    Dim routineRow As ListRow
-    Dim newRow As ListRow
-    Dim existingRow As ListRow
-    Dim isDuplicate As Boolean
-    Dim sortedRoutines As Collection
-    Dim sortOrder As Double
-    Dim sortedRoutineRows() As Variant
-    Dim rowIdx As Long
-    Dim col As ListColumn
-
-    ' Get the selected plant and product from the "Product Specification" sheet
+    Dim wsRoutinesDB As Worksheet, wsSelectedRoutines As Worksheet
+    Dim tblRoutinesDB As ListObject, tblSelectedRoutines As ListObject
+    Dim selectedPlant As String, selectedProduct As String
+    Dim productType As String
+    
+    ' Data Arrays
+    Dim arrSource As Variant
+    Dim arrDest As Variant
+    Dim arrNewData() As Variant
+    
+    ' Loop Variables
+    Dim i As Long, j As Long, r As Long
+    Dim countNew As Long
+    Dim dictExisting As Object
+    Dim key As String
+    
+    ' Column Mappings (Source Index -> Dest Index)
+    Dim colMap As Object
+    Dim srcHeader As Variant, destHeader As Variant
+    
+    ' Sorting
+    Dim arrSort() As Variant
+    Dim tempArr As Variant
+    
+    ' Initialize Sheets and Tables
     Set wsSelectedRoutines = ThisWorkbook.Sheets("2. Routines")
+    Set wsRoutinesDB = ThisWorkbook.Sheets("RoutinesDB")
+    
+    On Error Resume Next
+    Set tblRoutinesDB = wsRoutinesDB.ListObjects("RoutinesDB")
+    Set tblSelectedRoutines = wsSelectedRoutines.ListObjects("SelectedRoutines")
+    On Error GoTo 0
+    
+    If tblRoutinesDB Is Nothing Or tblSelectedRoutines Is Nothing Then Exit Sub
+    
+    ' Inputs
     selectedPlant = Trim(wsSelectedRoutines.Range("D5").Value)
     selectedProduct = Trim(wsSelectedRoutines.Range("D6").Value)
-
-    ' Validate input
+    productType = wsSelectedRoutines.Range("D8").Value
+    
     If selectedPlant = "" Or selectedProduct = "" Then
-        MsgBox "Please select both a plant and a product in the Product Specification sheet.", vbExclamation
+        MsgBox "Please select both a plant and a product.", vbExclamation
         Exit Sub
     End If
 
-    ' Set references to the relevant sheets and tables
-    Set wsRoutinesDB = ThisWorkbook.Sheets("RoutinesDB")
-    Set tblRoutinesDB = wsRoutinesDB.ListObjects("RoutinesDB")
-    Set tblSelectedRoutines = wsSelectedRoutines.ListObjects("SelectedRoutines")
-
-    ' Collect all rows from RoutinesDB for the selected plant
-    ReDim sortedRoutineRows(tblRoutinesDB.ListRows.Count - 1) ' Prepare array for sorting
-    rowIdx = 0
-
-    For Each routineRow In tblRoutinesDB.ListRows
-        If Trim(routineRow.Range(tblRoutinesDB.ListColumns("Plant").Index).Value) = selectedPlant Then
-            ' Get the Sort Order value
-            sortOrder = routineRow.Range(tblRoutinesDB.ListColumns("Sort Order").Index).Value
-            If IsNumeric(sortOrder) Then
-                sortedRoutineRows(rowIdx) = Array(sortOrder, routineRow)
-                rowIdx = rowIdx + 1
-            End If
-        End If
-    Next routineRow
-
-    ' Resize the array to the actual count of rows
-    ReDim Preserve sortedRoutineRows(rowIdx - 1)
-
-    ' Sort the array based on Sort Order
-    If UBound(sortedRoutineRows) >= 0 Then
-        Call BubbleSortBySortOrder(sortedRoutineRows)
-    End If
-
-    ' Copy sorted routines to SelectedRoutines table
-    For rowIdx = LBound(sortedRoutineRows) To UBound(sortedRoutineRows)
-        Set routineRow = sortedRoutineRows(rowIdx)(1) ' Extract the routine row from the sorted array
-
-        ' Check if the routine already exists in the SelectedRoutines table
-        isDuplicate = False
-        For Each existingRow In tblSelectedRoutines.ListRows
-            If Trim(existingRow.Range(tblSelectedRoutines.ListColumns("Product Number").Index).Value) = selectedProduct Then
-                isDuplicate = True
-                
-                ' Check all column values
-                For Each col In tblSelectedRoutines.ListColumns
-                    On Error Resume Next
-                    Dim dbCol As ListColumn
-                    Set dbCol = tblRoutinesDB.ListColumns(col.name)
-                    On Error GoTo 0
-                
-                    ' Skip if the column does not exist in tblRoutinesDB
-                    If Not dbCol Is Nothing Then
-                        If Trim(existingRow.Range(col.Index).Value) <> Trim(routineRow.Range(dbCol.Index).Value) Then
-                            isDuplicate = False
-                            Exit For
-                        End If
-                    End If
-                Next col
-
-                
-                If isDuplicate Then Exit For
-            End If
-        Next existingRow
-
-        ' Add the routine to the SelectedRoutines table if it's not a duplicate
-        If Not isDuplicate Then
-            If tblSelectedRoutines.ListRows.Count = 1 And tblSelectedRoutines.ListRows(1).Range.Cells(1) = "" Then
-                Set newRow = tblSelectedRoutines.ListRows(1)
-            Else
-                Set newRow = tblSelectedRoutines.ListRows.Add
-            End If
-
-            ' Copy all column values dynamically
-            For Each col In tblSelectedRoutines.ListColumns
-                On Error Resume Next
-                newRow.Range(col.Index).Value = routineRow.Range(tblRoutinesDB.ListColumns(col.name).Index).Value
-                On Error GoTo 0
-            Next col
-
-            ' Add the selected Product to the "Product Number" column
-            newRow.Range(tblSelectedRoutines.ListColumns("Product Number").Index).Value = selectedProduct
-
-            ' Add the Product type from the Product Specification sheet
-            newRow.Range(tblSelectedRoutines.ListColumns("Product Type").Index).Value = wsSelectedRoutines.Range("D8").Value
-
-            ' Add the Total Tr and Total Te formulas
-            ' Add the Total Tr formula using structured references
-            Dim formulaCell As Range
-            Dim rawFormula As String
-            
-            Set formulaCell = ThisWorkbook.Sheets("2. Routines").Range("AE1") ' Update with actual sheet name
-            rawFormula = formulaCell.Formula
-            
-            ' Remove leading apostrophe if Excel stored it as text
-            Dim cleanFormula As String
-            cleanFormula = Replace(formulaCell.Formula, "'", "")
-            
-            Debug.Print "Raw Formula: " & rawFormula
-            Debug.Print "Cleaned Formula: " & cleanFormula
-            
-            
-            ' Apply the formula to the structured table column
-
-            newRow.Range(tblSelectedRoutines.ListColumns("Number of Setups").Index).Value = 1 ' Number of setups default
-            newRow.Range(tblSelectedRoutines.ListColumns("ProductNumberText").Index).Formula = "= """" & [@[Product Number]]"
-        End If
-    Next rowIdx
+    ' --- PHASE 1: PREPARATION & PERFORMANCE ON ---
+    Call SpeedOn
     
-    ' Sort table after addition
-    SortSelectedRoutingByProduct
-    MsgBox "Routines copied successfully for the selected plant.", vbInformation
+    ' 1. Map Columns: Map DB Header Name to Selected Header Name
+    ' This allows us to copy data dynamically even if columns move
+    Set colMap = CreateObject("Scripting.Dictionary")
+    
+    ' Define which columns we copy FROM DB -> TO Selected
+    ' Format: Array("DB_Header", "Selected_Header")
+    ' Add more mappings here as needed
+    Dim mappingList As Variant
+    mappingList = Array( _
+        Array("Macrophase", "Macrophase"), _
+        Array("Microphase", "Microphase"), _
+        Array("Material", "Material"), _
+        Array("Machine", "Machine"), _
+        Array("Wire/cable dimension diameter/section  (mm/mm2)", "Wire/cable dimension diameter/section  (mm/mm2)"), _
+        Array("Wire/component dimensions  (mm)", "Wire/component dimensions  (mm)"), _
+        Array("tr", "tr"), _
+        Array("te", "te"), _
+        Array("Sort Order", "Sort Order"), _
+        Array("Work Center Code", "Work Center Code") _
+    )
+    
+    ' 2. Load Existing Data to Dictionary (To check duplicates FAST)
+    Set dictExisting = CreateObject("Scripting.Dictionary")
+    
+    If Not tblSelectedRoutines.DataBodyRange Is Nothing Then
+        arrDest = tblSelectedRoutines.DataBodyRange.Value
+        
+        ' Build composite key: Product + Macrophase + Microphase + Material + Machine + WorkCenter
+        ' Adjust these column numbers based on your table structure
+        Dim idxProd As Long, idxMacro As Long, idxMicro As Long, idxMat As Long, idxMach As Long
+        
+        With tblSelectedRoutines.ListColumns
+            idxProd = .item("Product Number").Index
+            idxMacro = .item("Macrophase").Index
+            idxMicro = .item("Microphase").Index
+            idxMat = .item("Material").Index
+            idxMach = .item("Machine").Index
+        End With
+        
+        For i = 1 To UBound(arrDest, 1)
+            If CStr(arrDest(i, idxProd)) = selectedProduct Then
+                ' Create a unique string key
+                key = selectedProduct & "|" & _
+                      arrDest(i, idxMacro) & "|" & _
+                      arrDest(i, idxMicro) & "|" & _
+                      arrDest(i, idxMat) & "|" & _
+                      arrDest(i, idxMach)
+                dictExisting(key) = True
+            End If
+        Next i
+    End If
+    
+    ' --- PHASE 2: READ SOURCE & FILTER ---
+    If tblRoutinesDB.DataBodyRange Is Nothing Then GoTo Cleanup
+    arrSource = tblRoutinesDB.DataBodyRange.Value
+    
+    ' Get Source Column Indices
+    Dim srcCols As Object
+    Set srcCols = CreateObject("Scripting.Dictionary")
+    For i = 1 To tblRoutinesDB.ListColumns.Count
+        srcCols(tblRoutinesDB.headerRowRange.Cells(1, i).Value) = i
+    Next i
+    
+    ' Temporary storage for filtered rows
+    ReDim arrSort(1 To UBound(arrSource, 1))
+    countNew = 0
+    
+    Dim colPlantIdx As Long, colSortIdx As Long
+    colPlantIdx = srcCols("Plant")
+    colSortIdx = srcCols("Sort Order")
+    
+    For i = 1 To UBound(arrSource, 1)
+        ' Filter by Plant
+        If Trim(arrSource(i, colPlantIdx)) = selectedPlant Then
+            
+            ' Generate Key to check against existing
+            ' Note: We need to look up source column indices to build the key
+            key = selectedProduct & "|" & _
+                  arrSource(i, srcCols("Macrophase")) & "|" & _
+                  arrSource(i, srcCols("Microphase")) & "|" & _
+                  arrSource(i, srcCols("Material")) & "|" & _
+                  arrSource(i, srcCols("Machine"))
+            
+            If Not dictExisting.exists(key) Then
+                countNew = countNew + 1
+                ' Store the whole row index and the sort order in an array
+                arrSort(countNew) = Array(arrSource(i, colSortIdx), i)
+            End If
+        End If
+    Next i
+    
+    If countNew = 0 Then
+        MsgBox "No new routines to add.", vbInformation
+        GoTo Cleanup
+    End If
+    
+    ' --- PHASE 3: SORT NEW DATA (Memory Bubble Sort) ---
+    ' Sorting the small array of indices is faster than sorting the whole table
+    Dim x As Long, y As Long
+    For x = 1 To countNew - 1
+        For y = x + 1 To countNew
+            If arrSort(x)(0) > arrSort(y)(0) Then
+                tempArr = arrSort(x)
+                arrSort(x) = arrSort(y)
+                arrSort(y) = tempArr
+            End If
+        Next y
+    Next x
+    
+    ' --- PHASE 4: CONSTRUCT DESTINATION ARRAYS ---
+    ' We need to prepare data for specific columns to write in bulk.
+    ' We cannot simply write the whole 2D array because of Formulas.
+    
+    ' Add the rows first
+    ' Using Resize is faster than ListRows.Add looped
+    Dim startRow As Long
+    Dim addedRange As Range
+    
+    ' Trick: Resize the listobject to accommodate new rows.
+    ' Formulas will autofill automatically here!
+    With tblSelectedRoutines
+        If .DataBodyRange Is Nothing Then
+            startRow = 1
+            ' Insert first row safely
+             .ListRows.Add
+             If countNew > 1 Then .Resize .Range.Resize(.Range.Rows.Count + (countNew - 1))
+        Else
+            startRow = .ListRows.Count + 1
+            .Resize .Range.Resize(.Range.Rows.Count + countNew)
+        End If
+    End With
+    
+    ' Now we construct arrays for each column we want to write
+    ' This is much faster than writing cell by cell
+    
+    Dim itemMap As Variant
+    Dim sourceRowIdx As Long
+    Dim colDestName As String, colSourceName As String
+    Dim targetCol As ListColumn
+    Dim bulkArr() As Variant
+    
+    ' Loop through our mapping list
+    For Each itemMap In mappingList
+        colSourceName = itemMap(0)
+        colDestName = itemMap(1)
+        
+        ' Check if columns exist
+        If srcCols.exists(colSourceName) Then
+            On Error Resume Next
+            Set targetCol = tblSelectedRoutines.ListColumns(colDestName)
+            On Error GoTo 0
+            
+            If Not targetCol Is Nothing Then
+                ReDim bulkArr(1 To countNew, 1 To 1)
+                
+                ' Fill array from sorted source indices
+                For i = 1 To countNew
+                    sourceRowIdx = arrSort(i)(1) ' Get original row index
+                    bulkArr(i, 1) = arrSource(sourceRowIdx, srcCols(colSourceName))
+                Next i
+                
+                ' Dump array into the specific column of the NEW rows
+                targetCol.DataBodyRange.Cells(startRow, 1).Resize(countNew, 1).Value = bulkArr
+            End If
+        End If
+    Next itemMap
+    
+    ' --- PHASE 5: FILL STATIC VALUES (Product, Type, Defaults) ---
+    ' Product Number
+    ReDim bulkArr(1 To countNew, 1 To 1)
+    For i = 1 To countNew: bulkArr(i, 1) = selectedProduct: Next i
+    tblSelectedRoutines.ListColumns("Product Number").DataBodyRange.Cells(startRow, 1).Resize(countNew, 1).Value = bulkArr
+    
+    ' Product Type
+    For i = 1 To countNew: bulkArr(i, 1) = productType: Next i
+    tblSelectedRoutines.ListColumns("Product Type").DataBodyRange.Cells(startRow, 1).Resize(countNew, 1).Value = bulkArr
+    
+    ' Number of Setups (Default 1)
+    For i = 1 To countNew: bulkArr(i, 1) = 1: Next i
+    tblSelectedRoutines.ListColumns("Number of Setups").DataBodyRange.Cells(startRow, 1).Resize(countNew, 1).Value = bulkArr
+
+    ' --- CLEANUP ---
+Cleanup:
+    Call SortSelectedRoutingByProduct ' Assuming this exists elsewhere
+    Call SpeedOff
+    MsgBox "Routines copied successfully.", vbInformation
+    
 End Sub
 
 

@@ -1,4 +1,7 @@
 Attribute VB_Name = "Utils"
+Option Explicit
+Private lCalcSave As Long
+
 Public Function FixDecimalSeparator(ByVal inputValue As String) As String
     Dim decimalSeparator As String
     decimalSeparator = application.International(xlDecimalSeparator)
@@ -204,109 +207,166 @@ Public Function IsNumericRegex(ByVal inputText As String) As Boolean
 
 End Function
 
-
+Option Explicit
 
 ' ===================================================================
-' Hauptprozedur zum Aufrufen der finalen, dynamischen Formatierung
+' OPTIMIZED SUBROUTINE: RunProductBasedFormatting
 ' ===================================================================
-Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName As String)
+' PURPOSE: Formats a target table based on Product grouping.
+' IMPROVEMENTS:
+' 1. Uses Arrays for data reading (Instant).
+' 2. Uses Dictionary for Product Index lookup (No nested loops).
+' 3. Uses Union Ranges to apply color in one batch (No row-by-row painting).
+' 4. Accepts 'helperColName' to distinguish between BOM and Routing logic.
+' ===================================================================
+Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName As String, helperColName As String)
+    On Error GoTo ErrorHandler
+    
     application.ScreenUpdating = False
+    application.Calculation = xlCalculationManual
 
-    Dim wsProducts As Worksheet
-    Dim wsData As Worksheet
-    Dim tblFinalProducts As ListObject
-    Dim tblAssociatedData As ListObject
-    Dim productColumn As ListColumn
-    Dim productCell As Range
+    ' --- 1. SETUP WORKSHEETS & TABLES ---
+    Dim wsProducts As Worksheet: Set wsProducts = ThisWorkbook.Sheets("Final Products")
+    Dim tblFinalProducts As ListObject: Set tblFinalProducts = wsProducts.ListObjects("FinalProductList")
     
+    Dim wsData As Worksheet: Set wsData = ThisWorkbook.Sheets(associatedSheetname)
+    Dim tblAssociatedData As ListObject: Set tblAssociatedData = wsData.ListObjects(associatedTableName)
+    
+    ' Check if Target Table has data
+    If tblAssociatedData.DataBodyRange Is Nothing Then GoTo CleanExit
+    
+    ' --- 2. DEFINE COLORS ---
     Dim baseColor1 As Long, baseColor2 As Long
-    Dim currentColor As Long, shadeColor As Long
-    Dim productIndex As Long
+    Dim shadeColor1 As Long, shadeColor2 As Long
     
-    ' *** ANPASSEN ***
-    ' Gib hier die Namen der beiden Arbeitsblätter an.
-    Set wsProducts = ThisWorkbook.Sheets("Final Products") ' <-- Name des Blattes mit der Produktliste
-    Set tblFinalProducts = wsProducts.ListObjects("FinalProductList")
+    baseColor1 = RGB(235, 241, 250)   ' Odd Products (Blueish)
+    baseColor2 = RGB(250, 243, 233)   ' Even Products (Beigeish)
+    shadeColor1 = LightenColor(baseColor1, 0.6)
+    shadeColor2 = LightenColor(baseColor2, 0.6)
     
-    Set wsData = ThisWorkbook.Sheets(associatedSheetname)       ' <-- Name des Blattes mit der Datentabelle
-    Set tblAssociatedData = wsData.ListObjects(associatedTableName) ' <-- Name der zu formatierenden Tabelle
-    
-    ' Definiere deine ZWEI abwechselnden Grundfarben
-    baseColor1 = RGB(235, 241, 250)   ' Farbe für ungerade Produkte (1, 3, ...)
-    baseColor2 = RGB(250, 243, 233)   ' Farbe für gerade Produkte (2, 4, ...)
-    
-    ' Gib den Namen der Spalte in der Zieltabelle an, die die Produktnamen enthält.
-    Set productColumn = tblAssociatedData.ListColumns("ProductNumberText") ' <-- Spaltenname anpassen
-    ' *** ENDE ANPASSUNG ***
-
-    ' 1. Alle bestehenden Farben aus der Zieltabelle entfernen und eventuell bestehenden Filter zurücksetzen
+    ' --- 3. RESET FORMATTING ---
+    ' Clear existing colors
     tblAssociatedData.DataBodyRange.Interior.Color = xlNone
-    If tblAssociatedData.AutoFilter.FilterMode Then
-        tblAssociatedData.AutoFilter.ShowAllData
-    End If
-    
-    ' Zähler für die Produktposition initialisieren
-    productIndex = 1
+    ' Clear Filter to ensure we process all rows
+    If tblAssociatedData.AutoFilter.FilterMode Then tblAssociatedData.AutoFilter.ShowAllData
 
-    ' 2. Schleife durch jedes Endprodukt in deiner Haupttabelle
-    For Each productCell In tblFinalProducts.ListColumns(2).DataBodyRange
-        
-        ' 3. Wähle die Grundfarbe basierend auf der geraden/ungeraden Position des Produkts
-        If productIndex Mod 2 <> 0 Then
-            currentColor = baseColor1
-        Else
-            currentColor = baseColor2
-        End If
-        
-        ' Berechne die hellere Schattenfarbe
-        shadeColor = LightenColor(currentColor, 0.6)
-        
-        ' 4. Formatiere die zugehörigen Zeilen in der Zieltabelle
-        FormatRowsForProduct tblAssociatedData, productColumn.Index, productCell.Value, currentColor, shadeColor
-        
-        ' Zähler für das nächste Produkt erhöhen
-        productIndex = productIndex + 1
-        
-    Next productCell
+    ' --- 4. BUILD LOOKUP DICTIONARY (Source Data) ---
+    ' We map "Product Number" -> "Helper Index"
+    ' This allows us to know the Order # of a product instantly.
     
-    ' =================================================
-    ' *** NEUER, STABILERER CODE ZUM ENTFERNEN DES FILTERS ***
-    ' Prüfe, ob die Tabelle überhaupt gefiltert ist (FilterMode = True)
-    ' und entferne den Filter nur dann. Das ist sicherer als "On Error Resume Next".
-    ' =================================================
-    If tblAssociatedData.AutoFilter.FilterMode Then
-        tblAssociatedData.AutoFilter.ShowAllData
-    End If
+    Dim dictProdIndex As Object
+    Set dictProdIndex = CreateObject("Scripting.Dictionary")
     
-    application.ScreenUpdating = True
-End Sub
-
-
-' ===================================================================
-' Formatiert die Zeilen für ein bestimmtes Produkt in einer Tabelle (unverändert)
-' ===================================================================
-Private Sub FormatRowsForProduct(ByVal targetTable As ListObject, ByVal colIndex As Long, ByVal criteria As String, ByVal color1 As Long, ByVal color2 As Long)
-    targetTable.Range.AutoFilter Field:=colIndex, Criteria1:=criteria
+    Dim arrSourceProd As Variant
+    Dim arrSourceHelper As Variant
     
-    Dim visibleRowCounter As Long
-    Dim lr As ListRow
-    visibleRowCounter = 1
+    ' Load Source Columns into Memory
+    arrSourceProd = tblFinalProducts.ListColumns("Product Number").DataBodyRange.Value
+    arrSourceHelper = tblFinalProducts.ListColumns(helperColName).DataBodyRange.Value
     
-    For Each lr In targetTable.ListRows
-        If Not lr.Range.EntireRow.Hidden Then
-            If visibleRowCounter Mod 2 <> 0 Then
-                lr.Range.Interior.Color = color1
-            Else
-                lr.Range.Interior.Color = color2
+    Dim i As Long
+    Dim pKey As String, pIndex As Variant
+    
+    For i = 1 To UBound(arrSourceProd, 1)
+        pKey = CStr(arrSourceProd(i, 1))
+        pIndex = arrSourceHelper(i, 1)
+        
+        ' Only add if Helper Index is not empty (Product exists in target)
+        If Not IsEmpty(pIndex) And Not IsError(pIndex) And CStr(pIndex) <> "" And pKey <> "" Then
+            If Not dictProdIndex.exists(pKey) Then
+                dictProdIndex.Add pKey, CLng(pIndex)
             End If
-            visibleRowCounter = visibleRowCounter + 1
         End If
-    Next lr
+    Next i
     
+    ' --- 5. PROCESS TARGET TABLE ---
+    ' Load Target Product Column into Memory
+    Dim arrTargetProd As Variant
+    arrTargetProd = tblAssociatedData.ListColumns("ProductNumberText").DataBodyRange.Value
+    
+    ' Prepare Range Variables for Batch Coloring
+    ' We have 4 buckets:
+    ' 1. Color1 Dark (Odd Product, Odd Row)
+    ' 2. Color1 Light (Odd Product, Even Row)
+    ' 3. Color2 Dark (Even Product, Odd Row)
+    ' 4. Color2 Light (Even Product, Even Row)
+    
+    Dim rngC1_Dark As Range, rngC1_Light As Range
+    Dim rngC2_Dark As Range, rngC2_Light As Range
+    Dim currentRange As Range
+    
+    Dim lastProd As String: lastProd = ""
+    Dim currentRowInBlock As Long: currentRowInBlock = 0
+    Dim prodIdx As Long
+    Dim isProductOdd As Boolean
+    
+    ' Loop through Target Table Data (In Memory = Fast)
+    For i = 1 To UBound(arrTargetProd, 1)
+        pKey = CStr(arrTargetProd(i, 1))
+        
+        ' Identify the row object (we need this to build the Union range)
+        ' Note: tblAssociatedData.DataBodyRange.Rows(i) is relatively fast
+        Set currentRange = tblAssociatedData.DataBodyRange.Rows(i)
+        
+        ' Look up the Index for this product
+        If dictProdIndex.exists(pKey) Then
+            prodIdx = dictProdIndex(pKey)
+            
+            ' Check if we switched to a new product block to reset the inner shade counter
+            If pKey <> lastProd Then
+                currentRowInBlock = 1
+                lastProd = pKey
+            Else
+                currentRowInBlock = currentRowInBlock + 1
+            End If
+            
+            ' Is the Product Index Odd or Even?
+            isProductOdd = (prodIdx Mod 2 <> 0)
+            
+            If isProductOdd Then
+                ' Product Group 1 (Blue)
+                If currentRowInBlock Mod 2 <> 0 Then
+                    ' Odd Row (Dark)
+                    If rngC1_Dark Is Nothing Then Set rngC1_Dark = currentRange Else Set rngC1_Dark = Union(rngC1_Dark, currentRange)
+                Else
+                    ' Even Row (Light)
+                    If rngC1_Light Is Nothing Then Set rngC1_Light = currentRange Else Set rngC1_Light = Union(rngC1_Light, currentRange)
+                End If
+            Else
+                ' Product Group 2 (Beige)
+                If currentRowInBlock Mod 2 <> 0 Then
+                    ' Odd Row (Dark)
+                    If rngC2_Dark Is Nothing Then Set rngC2_Dark = currentRange Else Set rngC2_Dark = Union(rngC2_Dark, currentRange)
+                Else
+                    ' Even Row (Light)
+                    If rngC2_Light Is Nothing Then Set rngC2_Light = currentRange Else Set rngC2_Light = Union(rngC2_Light, currentRange)
+                End If
+            End If
+            
+        End If
+    Next i
+    
+    ' --- 6. APPLY COLORS (Bulk Operation) ---
+    ' We apply the color 4 times total, instead of thousands of times.
+    
+    If Not rngC1_Dark Is Nothing Then rngC1_Dark.Interior.Color = baseColor1
+    If Not rngC1_Light Is Nothing Then rngC1_Light.Interior.Color = shadeColor1
+    
+    If Not rngC2_Dark Is Nothing Then rngC2_Dark.Interior.Color = baseColor2
+    If Not rngC2_Light Is Nothing Then rngC2_Light.Interior.Color = shadeColor2
+
+CleanExit:
+    application.ScreenUpdating = True
+    application.Calculation = xlCalculationAutomatic
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Error in Formatting: " & Err.description, vbCritical
+    Resume CleanExit
 End Sub
 
 ' ===================================================================
-' HILFSFUNKTION: Hellt eine gegebene Farbe auf (unverändert)
+' HELPER FUNCTION: LightenColor (Kept exactly as you had it)
 ' ===================================================================
 Public Function LightenColor(ByVal baseColor As Long, ByVal factor As Double) As Long
     Dim r As Long, g As Long, b As Long
@@ -321,3 +381,21 @@ Public Function LightenColor(ByVal baseColor As Long, ByVal factor As Double) As
     If b > 255 Then b = 255
     LightenColor = RGB(r, g, b)
 End Function
+
+
+
+
+Sub SpeedOn()
+    application.ScreenUpdating = False
+    application.EnableEvents = False
+    lCalcSave = application.Calculation
+    application.Calculation = xlCalculationManual
+End Sub
+
+Sub SpeedOff()
+    application.ScreenUpdating = True
+    application.EnableEvents = True
+    application.Calculation = lCalcSave
+    ' Force a recalculation to update the new rows
+    If lCalcSave = xlCalculationAutomatic Then application.Calculate
+End Sub
