@@ -52,7 +52,7 @@ Public Sub SendFullyValidatedRFQ()
 
     ' Update the status and add the current UTC time
     tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Status").Index).Value = "Full RFQ Validated"
-    DateValue = Format(DateAdd("s", -CLng(TimeZoneOffset()), Now), "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
+    DateValue = Format(Now, "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
     tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("RFQ valuation completion time").Index).Value = DateValue
 
     ' Prepare additional data for Power Automate
@@ -126,7 +126,7 @@ Private Sub SendToPowerAutomate(status As String, Optional AdditionalData As Obj
     PlantInternalID = tbl.ListRows(1).Range(tbl.ListColumns("Internal ID").Index).Value
 
     ' Get the current UTC time
-    DateValue = Format(DateAdd("s", -CLng(TimeZoneOffset()), Now), "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
+    DateValue = Format(Now, "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
     
     ' Construct the JSON payload
     requestBody = "{""RFQID"": """ & JsonEscape(RFQNumber) & """, " & _
@@ -196,18 +196,7 @@ Private Sub SendToPowerAutomate(status As String, Optional AdditionalData As Obj
 End Sub
 
 
-' Function to calculate the local timezone offset in seconds
-Private Function TimeZoneOffset() As Double
-    Dim localTime As Date, gmtTime As Date
-    Dim offset As Double
 
-    ' Calculate the difference between local time and GMT/UTC
-    localTime = Now
-    gmtTime = localTime - (Now() - Now)
-    offset = DateDiff("s", gmtTime, localTime)
-
-    TimeZoneOffset = offset
-End Function
 
 Private Function JsonEscape(str As String) As String
     ' Purpose: Escapes a string to be safely embedded in a JSON payload.
@@ -237,7 +226,7 @@ Public Sub AddFirstProduct()
 
     ' Update the status and add the current UTC time
     tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "RFQ Calculation Started"
-    DateValue = Format(DateAdd("s", -CLng(TimeZoneOffset()), Now), "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
+    DateValue = Format(Now, "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
     tbl.ListRows(1).Range(tbl.ListColumns("RFQ calculation start time").Index).Value = DateValue
     ' Send to Power Automate
     Call SendToPowerAutomate("RFQ Calculation Started")
@@ -255,7 +244,7 @@ Public Sub BOMRoutingCreated()
     
     ' Update the status and add the current UTC time
     tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "BOM&Routing Created"
-    DateValue = Format(DateAdd("s", -CLng(TimeZoneOffset()), Now), "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
+    DateValue = Format(Now, "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
     tbl.ListRows(1).Range(tbl.ListColumns("RFQ BOM and Routings completion time").Index).Value = DateValue
 
     ' Send to Power Automate
@@ -515,7 +504,7 @@ Public Sub RejectRFQ()
     End If
 
     ' Get current UTC and local time
-    utcTime = Format(DateAdd("s", -CLng(TimeZoneOffset()), Now), "yyyy-mm-dd\Thh:nn:ss")
+    utcTime = Format(Now, "yyyy-mm-dd\Thh:nn:ss")
     localTimeDisplay = Format(Now, "yyyy-mm-dd hh:mm") ' display time (for G2)
 
     ' Update cell O2 with local time in display format
@@ -640,7 +629,7 @@ Public Sub MakeCommentsByProduct()
     Dim ws As Worksheet
     Dim tbl As ListObject
     Dim colIdx As Long
-    Dim target As Range
+    Dim Target As Range
     
     ' Build "PN - Comment" lines (reads Sales sheet: Col B & F from row 15)
     txt = BuildCommentsByProduct()
@@ -659,11 +648,14 @@ Public Sub MakeCommentsByProduct()
     End If
     
     If tbl.ListRows.Count = 0 Then tbl.ListRows.Add
-    Set target = tbl.DataBodyRange.Cells(1, colIdx)
-    target.Value = txt
+    Set Target = tbl.DataBodyRange.Cells(1, colIdx)
+    Target.Value = txt
     
     ' Bring user to the updated cell
     ws.Activate
-    target.Select
+    Target.Select
 End Sub
 
+Public Sub SendGeneralStatusUpdate()
+    Call SendToPowerAutomate("GeneralStatusUpdate")
+End Sub
