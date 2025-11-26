@@ -54,23 +54,26 @@ End Sub
 ' Subroutine: RunCO09ForAllBOMRows
 '
 ' Description:
-'   Automates SAP CO09 transaction for "BOMDefinition".
+'   Automates SAP CO09 transaction for "BOMDefinition" table.
 '
-' Logic Updates:
-'   - isHanaCompany: Defined as TRUE unless plant starts with "F" or "P".
-'   - If isHanaCompany is TRUE:
-'       - Fills BERID, Selects PRMBD.
-'       - Reads stock from SAPAPO table index [6,0].
-'   - If isHanaCompany is FALSE (Plants F... or P...):
-'       - Skips BERID and PRMBD.
-'       - Reads stock from MDEZ table index [5,0].
+' Logic:
+'   - Checks if Plant (Werks) starts with "F" or "P".
+'   - IF "F" or "P" (Non-HANA):
+'       - Logic: Skips BERID/PRMBD fields.
+'       - Read Path: MDEZ table (Row 5).
+'   - ELSE (HANA):
+'       - Logic: Fills BERID, Checks PRMBD.
+'       - Read Path: SAPAPO table (Row 6).
+'
+' Safety:
+'   - Only updates the Excel cell if the SAP read command is successful.
 '------------------------------------------------------------------------------
 Sub RunCO09ForAllBOMRows()
     Dim ws As Worksheet
     Dim tbl As ListObject
     Dim row As ListRow
     Dim matnr As String, werks As String, berid As String
-    Dim freeStock As Variant
+    Dim freeStock As Double
     Dim colMaterial As Long, colPlant As Long, colFreeStock As Long
     
     ' SAP Objects
@@ -82,8 +85,12 @@ Sub RunCO09ForAllBOMRows()
     ' Logic Variables
     Dim isHanaCompany As Boolean
     Dim sapReadID As String
+    Dim rawSAPValue As String
+    Dim readSuccess As Boolean
 
-    ' Set worksheet and table
+    ' ---------------------------------------------------------
+    ' 1. Excel Setup
+    ' ---------------------------------------------------------
     Set ws = ThisWorkbook.Sheets("1. BOM Definition")
     On Error Resume Next
     Set tbl = ws.ListObjects("BOMDefinition")
@@ -94,11 +101,11 @@ Sub RunCO09ForAllBOMRows()
         Exit Sub
     End If
     
-    ' Get column indices
+    ' Get column indices (Adjust header names if necessary)
     On Error Resume Next
     colMaterial = tbl.ListColumns("Material").Index
     colPlant = tbl.ListColumns("Plant").Index
-    colFreeStock = tbl.ListColumns("Provisonal Free Stock").Index
+    colFreeStock = tbl.ListColumns("Provisonal Free Stock").Index ' Kept spelling as per your snippet
     On Error GoTo 0
 
     If colMaterial = 0 Or colPlant = 0 Or colFreeStock = 0 Then
@@ -107,7 +114,7 @@ Sub RunCO09ForAllBOMRows()
     End If
 
     ' ---------------------------------------------------------
-    ' SAP Connection Setup
+    ' 2. SAP Connection Setup
     ' ---------------------------------------------------------
     On Error Resume Next
     Set SapGuiAuto = GetObject("SAPGUI")
@@ -127,26 +134,24 @@ Sub RunCO09ForAllBOMRows()
     On Error GoTo 0
 
     ' ---------------------------------------------------------
-    ' Row Iteration
+    ' 3. Row Iteration
     ' ---------------------------------------------------------
     For Each row In tbl.ListRows
         matnr = row.Range(1, colMaterial).Value
         werks = row.Range(1, colPlant).Value
         
-        ' Handle Logic: TP List
+        ' Logic: TP List Handling
         If werks = "TP List" Then werks = "5100"
         berid = werks
         
-        ' Validation
+        ' Validation: Skip if data missing
         If matnr = "" Or werks = "" Then
             row.Range(1, colFreeStock).Value = "[Missing Data]"
             GoTo NextRow
         End If
 
-        ' -----------------------------------------------------
-        ' Determine Logic Type (HANA vs Legacy/MDEZ)
-        ' -----------------------------------------------------
-        ' If Plant starts with F or P, it is NOT a Hana Company
+        ' Logic: Determine Company Type (HANA vs Legacy)
+        ' If Plant starts with F or P -> Non-HANA
         If UCase(Left(werks, 1)) = "F" Or UCase(Left(werks, 1)) = "P" Then
             isHanaCompany = False
         Else
@@ -154,60 +159,74 @@ Sub RunCO09ForAllBOMRows()
         End If
 
         ' -----------------------------------------------------
-        ' SAP GUI Interaction
+        ' 4. SAP GUI Interaction
         ' -----------------------------------------------------
         On Error Resume Next
         
-        ' Reset Transaction
+        ' Reset Transaction (/nco09)
         SAPSession.findById("wnd[0]").maximize
         SAPSession.findById("wnd[0]/tbar[0]/okcd").Text = "/nco09"
         SAPSession.findById("wnd[0]").sendVKey 0
         
-        ' Handle potential popup (wnd[1])
+        ' Handle potential "Exit" popup from previous runs
         If Not SAPSession.findById("wnd[1]/tbar[0]/btn[0]") Is Nothing Then
             SAPSession.findById("wnd[1]/tbar[0]/btn[0]").press
             SAPSession.findById("wnd[0]/tbar[0]/okcd").Text = "/nco09"
             SAPSession.findById("wnd[0]").sendVKey 0
         End If
         
-        ' --- Fill Fields ---
+        ' Fill Common Fields
         SAPSession.findById("wnd[0]/usr/ctxtCAUFVD-MATNR").Text = matnr
         SAPSession.findById("wnd[0]/usr/ctxtCAUFVD-WERKS").Text = werks
         SAPSession.findById("wnd[0]/usr/ctxtCAUFVD-PRREG").Text = "A"
         
-        ' Only fill BERID and check PRMBD if it IS a Hana Company
+        ' Conditional Input: Only fill BERID/PRMBD if HANA
         If isHanaCompany Then
             SAPSession.findById("wnd[0]/usr/ctxtAFPOD-BERID").Text = berid
             SAPSession.findById("wnd[0]/usr/chkCAUFVD-PRMBD").Selected = True
+            SAPSession.findById("wnd[0]/usr/ctxtCAUFVD-PRREG").Text = "ZA"
+        Else
+            SAPSession.findById("wnd[0]/usr/chkCAUFVD-PRMBD").Selected = False
         End If
         
-        ' Execute Search
+        ' Execute
         SAPSession.findById("wnd[0]").sendVKey 0
         
-        ' --- Read Data ---
-        ' Determine the ID path based on company type
+        ' -----------------------------------------------------
+        ' 5. Read Data (Error Safe)
+        ' -----------------------------------------------------
+        ' Determine the correct table ID based on company type
         If isHanaCompany Then
-            ' Standard HANA ID
+            ' HANA Table (SAPAPO), Row 6
             sapReadID = "wnd[0]/usr/tbl/SAPAPO/SAPLATP4CTR_400/txt/SAPAPO/ATPDE-CATPQTY[6,0]"
         Else
-            ' Non-HANA / Legacy (F or P Plants) ID
-            sapReadID = "wnd[0]/usr/tbl/MDEZ/SAPLATP4CTR_400/txt/MDEZ-MNG04[5,0]"
+            ' Non-HANA Table (MDEZ), Row 5 - Fixed missing slashes here
+            sapReadID = "wnd[0]/usr/tblSAPLATP4CTR_400/txtMDEZ-MNG04[5,0]"
         End If
         
-        freeStock = CDbl(SAPSession.findById(sapReadID).Text)
+        ' Attempt to read the value
+        Err.Clear
+        rawSAPValue = SAPSession.findById(sapReadID).Text ' Using .Text is safer than .Value for table cells
         
-        If Err.Number <> 0 Then
-            freeStock = 0
+        ' Check if the command caused an error
+        If Err.Number = 0 Then
+            ' If no error, parse and write to Excel
+            If IsNumeric(rawSAPValue) Then
+                row.Range(1, colFreeStock).Value = CDbl(rawSAPValue)
+            Else
+                ' Handle cases where text is returned but not a number (optional)
+                row.Range(1, colFreeStock).Value = 0
+            End If
+        Else
+            ' If error occurred (e.g., ID not found/Table empty), do not write anything
+            ' Optional: row.Range(1, colFreeStock).Value = "Error"
             Err.Clear
         End If
-        On Error GoTo 0
         
-        ' Write result
-        row.Range(1, colFreeStock).Value = freeStock
+        On Error GoTo 0
 
 NextRow:
     Next row
     
     MsgBox "CO09 automation completed.", vbInformation
 End Sub
-
