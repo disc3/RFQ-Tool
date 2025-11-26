@@ -294,7 +294,7 @@ Private Sub btnCreateVariant_Click()
     ' --- CLEANUP & NEXT STEPS ---
     Dim frmRoutine As New frmRoutineVariantEditor
     Unload Me
-    Call Utils.RunProductBasedFormatting("1. BOM Definition", "BOMDefinition")
+    Call Utils.RunProductBasedFormatting("1. BOM Definition", "BOMDefinition", "Helper Format BOMs")
     With frmRoutine
         .baseProduct = baseProduct
         .variantName = variantName

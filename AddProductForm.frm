@@ -239,7 +239,7 @@ Private Sub btnAdd_Click()
         ThisWorkbook.Sheets("1. BOM Definition").Shapes("btnOpenServoForm").Visible = True
     End If
     
-    Call AddMaterialPreparingRoutineIfNeeded(product, productType)
+    Call AddMaterialPreparingRoutineIfNeeded(product)
     
     Unload Me ' Close the form.
 
@@ -259,108 +259,6 @@ Private Sub btnCancel_Click()
     Unload Me
 End Sub
 
-' ==========================================================================
-' PUBLIC SUBROUTINE: AddMaterialPreparingRoutineIfNeeded
-' ==========================================================================
-' PURPOSE: Adds a default "Material preparing" routine for a new product if the
-'          selected plant is "1410" or "1420". It will use the first row of the
-'          destination table if it's empty, otherwise it adds a new row.
-' ==========================================================================
-Public Sub AddMaterialPreparingRoutineIfNeeded(ByVal productNumber As String, ByVal productType As String)
-    On Error GoTo ErrorHandler
-
-    ' --- Pre-computation/Pre-flight Checks ---
-    If Not SheetExists("1. BOM Definition") Or Not SheetExists("RoutinesDB") Or Not SheetExists("2. Routines") Then
-        MsgBox "One or more required sheets for routine creation are missing. Aborting operation.", vbCritical, "Missing Sheet"
-        Exit Sub
-    End If
-    Dim wsRoutinesDB As Worksheet: Set wsRoutinesDB = ThisWorkbook.Sheets("RoutinesDB")
-    Dim wsSelectedRoutines As Worksheet: Set wsSelectedRoutines = ThisWorkbook.Sheets("2. Routines")
-    If Not TableExists(wsRoutinesDB, "RoutinesDB") Or Not TableExists(wsSelectedRoutines, "SelectedRoutines") Then
-        MsgBox "One or more required tables for routine creation are missing. Aborting operation.", vbCritical, "Missing Table"
-        Exit Sub
-    End If
-
-    ' --- Main Logic ---
-    Dim selectedPlant As String
-    selectedPlant = Trim(ThisWorkbook.Sheets("1. BOM Definition").Range("C9").Value)
-
-    If selectedPlant <> "1410" And selectedPlant <> "1420" Then
-        Exit Sub
-    End If
-
-    Dim tblRoutinesDB As ListObject: Set tblRoutinesDB = wsRoutinesDB.ListObjects("RoutinesDB")
-    Dim tblSelected As ListObject: Set tblSelected = wsSelectedRoutines.ListObjects("SelectedRoutines")
-    Dim routineRow As ListRow, newRow As ListRow
-    Dim routineFound As Boolean: routineFound = False
-    
-    Dim trValue As Variant, teValue As Variant
-    Dim trConverted As Double, teConverted As Double
-
-    For Each routineRow In tblRoutinesDB.ListRows
-        If Trim(routineRow.Range(tblRoutinesDB.ListColumns("Plant").Index).Value) = selectedPlant And _
-           Trim(routineRow.Range(tblRoutinesDB.ListColumns("Macrophase").Index).Value) = "Stock" And _
-           Trim(routineRow.Range(tblRoutinesDB.ListColumns("Microphase").Index).Value) = "Material preparing" Then
-            
-            ' --- UPDATED: Logic to handle placeholder row ---
-            ' If the table has one row and the "Product Number" cell is empty, use that row.
-            ' Otherwise, add a new row to the table.
-            If tblSelected.ListRows.Count = 1 And IsEmpty(tblSelected.ListRows(1).Range(tblSelected.ListColumns("Product Number").Index).Value) Then
-                Set newRow = tblSelected.ListRows(1)
-            Else
-                Set newRow = tblSelected.ListRows.Add(AlwaysInsert:=True)
-            End If
-            
-            ' --- Safe Conversion for tr/te values ---
-            trValue = routineRow.Range(tblRoutinesDB.ListColumns("tr").Index).Value
-            teValue = routineRow.Range(tblRoutinesDB.ListColumns("te").Index).Value
-            
-            If IsNumeric(trValue) Then
-                trConverted = CDbl(trValue)
-            Else
-                trConverted = 0
-            End If
-            
-            If IsNumeric(teValue) Then
-                teConverted = CDbl(teValue)
-            Else
-                teConverted = 0
-            End If
-
-            ' Assign values cell-by-cell for maximum safety and clarity.
-            With newRow.Range
-                .Cells(1, tblSelected.ListColumns("Plant").Index).Value = selectedPlant
-                .Cells(1, tblSelected.ListColumns("Product Number").Index).Value = productNumber
-                .Cells(1, tblSelected.ListColumns("Product Type").Index).Value = productType
-                .Cells(1, tblSelected.ListColumns("Macrophase").Index).Value = "Stock"
-                .Cells(1, tblSelected.ListColumns("Microphase").Index).Value = "Material preparing"
-                .Cells(1, tblSelected.ListColumns("Material").Index).Value = routineRow.Range(tblRoutinesDB.ListColumns("Material").Index).Value
-                .Cells(1, tblSelected.ListColumns("Machine").Index).Value = routineRow.Range(tblRoutinesDB.ListColumns("Machine").Index).Value
-                .Cells(1, tblSelected.ListColumns("Wire/cable dimension diameter/section  (mm/mm2)").Index).Value = routineRow.Range(tblRoutinesDB.ListColumns("Wire/cable dimension diameter/section  (mm/mm2)").Index).Value
-                .Cells(1, tblSelected.ListColumns("Wire/component dimensions  (mm)").Index).Value = routineRow.Range(tblRoutinesDB.ListColumns("Wire/component dimensions  (mm)").Index).Value
-                .Cells(1, tblSelected.ListColumns("Work Center Code").Index).Value = routineRow.Range(tblRoutinesDB.ListColumns("Work Center Code").Index).Value
-                .Cells(1, tblSelected.ListColumns("tr").Index).Value = trConverted
-                .Cells(1, tblSelected.ListColumns("te").Index).Value = teConverted
-                .Cells(1, tblSelected.ListColumns("Number of Operations").Index).Value = 1
-                .Cells(1, tblSelected.ListColumns("Number of Setups").Index).Value = 1
-                .Cells(1, tblSelected.ListColumns("Sort Order").Index).Value = routineRow.Range(tblRoutinesDB.ListColumns("Sort Order").Index).Value
-            End With
-            
-            routineFound = True
-            Exit For
-        End If
-    Next routineRow
-
-    If Not routineFound Then
-        MsgBox "Could not find a default 'Material preparing' routine in RoutinesDB for plant " & selectedPlant & ".", vbExclamation, "Routine Not Found"
-    End If
-
-    Exit Sub
-
-ErrorHandler:
-    MsgBox "An error occurred in 'AddMaterialPreparingRoutineIfNeeded':" & vbCrLf & vbCrLf & _
-           "Error " & Err.Number & ": " & Err.description, vbCritical, "Routine Error"
-End Sub
 
 ' ==========================================================================
 ' HELPER FUNCTION: SheetExists

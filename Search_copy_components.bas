@@ -125,7 +125,7 @@ Private Function UpdateComponentDetails(targetRow As ListRow) As String
         If Not IsError(bomColIndex) Then
             Select Case col.name
                 ' Ignore key columns that are manually set or are identifiers
-                Case "Material", "Plant", "Quantity", "Alternate", "Product Number", "MatPlantID", "SearchColumn", "MatSourceID"
+                Case "Material", "Plant", "Quantity", "Alternate", "Product Number", "MatPlantID", "SearchColumn", "MatSourceID", "LAPP Item"
                     ' Do nothing
                 Case Else
                     Set targetCell = targetRow.Range(bomColIndex)
@@ -139,8 +139,38 @@ Private Function UpdateComponentDetails(targetRow As ListRow) As String
             End Select
         End If
     Next col
+    
+    
+    ' --- 4. APPLY FORMULAS (Logic Update) ---
+    ' Hier setzen wir die Formel für "LAPP Item" explizit.
+    ' Wir prüfen erst, ob die Spalte existiert, um Fehler zu vermeiden.
+    
+    On Error Resume Next
+    Dim lappColIndex As Long
+    lappColIndex = loBom.ListColumns("LAPP Item").Index
+    On Error GoTo ErrorHandler
+    
+    If lappColIndex > 0 Then
+        Dim targetRange As Range
+        Set targetRange = targetRow.Range(lappColIndex)
+        
+        ' Zuerst das Format auf "Standard" (General) setzen
+        ' Das verhindert, dass die Formel als bloßer Text angezeigt wird.
+        targetRange.NumberFormat = "General"
+        
+        ' Formel definieren (Englische Syntax)
+        Dim strFormula As String
+        strFormula = "=IF(COUNTIF(LAPPCompanies[Firm], [@[Vendor name]]) > 0, ""Yes"", """")"
+        
+        ' Formel nur schreiben, wenn sie sich geändert hat (vermeidet unnötige Neuberechnungen)
+        If targetRange.Formula2 <> strFormula Then
+            targetRange.Formula2 = strFormula
+            dataUpdated = True
+        End If
+    End If
+    
     Utils.ApplyRowFormatting targetRow
-    ' --- 4. RETURN STATUS ---
+    ' --- 5. RETURN STATUS ---
     If dataUpdated Then
         UpdateComponentDetails = "Updated"
     Else
@@ -254,7 +284,7 @@ Public Sub RefreshBOMData()
     MsgBox "BOM data refresh complete." & vbCrLf & vbCrLf & _
            "Updated Rows: " & updatedCount & vbCrLf & _
            "Rows Not Found: " & notFoundCount, vbInformation, "Refresh Complete"
-
+    Call Utils.RunProductBasedFormatting(BOM_SHEET_NAME, BOM_TABLE_NAME, "Helper Format BOMs")
 CleanExit:
     application.StatusBar = False
     application.ScreenUpdating = True
@@ -502,6 +532,8 @@ Public Sub GoToMassUpload()
         ws.Activate
     End If
 End Sub
+
+
 
 
 

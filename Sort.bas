@@ -56,7 +56,7 @@ Sub SortSelectedComponentsByProduct()
         ' MsgBox "No data to sort in the SelectedComponents table.", vbExclamation
     End If
     On Error Resume Next
-    Call Utils.RunProductBasedFormatting(ws.name, tbl.name)
+    Call Utils.RunProductBasedFormatting(ws.name, tbl.name, "Helper Format BOMs")
     On Error GoTo 0
     ' Call SortSelectedRoutingByProduct after this function
     SortSelectedRoutingByProduct
@@ -103,7 +103,7 @@ Sub SortSelectedRoutingByProduct()
         ' MsgBox "No data to sort in the SelectedRoutines table.", vbExclamation
     End If
     On Error Resume Next
-    Call Utils.RunProductBasedFormatting(ws.name, tbl.name)
+    Call Utils.RunProductBasedFormatting(ws.name, tbl.name, "Helper Format Routings")
     On Error GoTo 0
 End Sub
 

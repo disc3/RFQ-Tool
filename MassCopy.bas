@@ -232,7 +232,7 @@ NextRow:
     End If
 
     SortSelectedComponentsByProduct
-    Call Utils.RunProductBasedFormatting("1. BOM Definition", "BOMDefinition")
+    Call Utils.RunProductBasedFormatting("1. BOM Definition", "BOMDefinition", "Helper Format BOMs")
     Dbg "=== ProcessMassUpload END ==="
 End Sub
 
