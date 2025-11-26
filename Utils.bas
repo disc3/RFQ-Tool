@@ -234,35 +234,43 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
     
     ' Check if Target Table has data
     If tblAssociatedData.DataBodyRange Is Nothing Then GoTo CleanExit
+    If tblFinalProducts.DataBodyRange Is Nothing Then GoTo CleanExit
     
     ' --- 2. DEFINE COLORS ---
     Dim baseColor1 As Long, baseColor2 As Long
     Dim shadeColor1 As Long, shadeColor2 As Long
     
-    baseColor1 = RGB(235, 241, 250)   ' Odd Products (Blueish)
-    baseColor2 = RGB(250, 243, 233)   ' Even Products (Beigeish)
+    baseColor1 = RGB(235, 241, 250)   ' Odd Products
+    baseColor2 = RGB(250, 243, 233)   ' Even Products
     shadeColor1 = LightenColor(baseColor1, 0.6)
     shadeColor2 = LightenColor(baseColor2, 0.6)
     
     ' --- 3. RESET FORMATTING ---
-    ' Clear existing colors
     tblAssociatedData.DataBodyRange.Interior.Color = xlNone
-    ' Clear Filter to ensure we process all rows
     If tblAssociatedData.AutoFilter.FilterMode Then tblAssociatedData.AutoFilter.ShowAllData
 
     ' --- 4. BUILD LOOKUP DICTIONARY (Source Data) ---
-    ' We map "Product Number" -> "Helper Index"
-    ' This allows us to know the Order # of a product instantly.
-    
     Dim dictProdIndex As Object
     Set dictProdIndex = CreateObject("Scripting.Dictionary")
     
     Dim arrSourceProd As Variant
     Dim arrSourceHelper As Variant
+    Dim rngSourceProd As Range, rngSourceHelper As Range
     
-    ' Load Source Columns into Memory
-    arrSourceProd = tblFinalProducts.ListColumns("Product Number").DataBodyRange.Value
-    arrSourceHelper = tblFinalProducts.ListColumns(helperColName).DataBodyRange.Value
+    ' Define Ranges
+    Set rngSourceProd = tblFinalProducts.ListColumns("Product Number").DataBodyRange
+    Set rngSourceHelper = tblFinalProducts.ListColumns(helperColName).DataBodyRange
+    
+    ' *** FIX: Handle Single Row Case for Source ***
+    If rngSourceProd.Cells.Count = 1 Then
+        ReDim arrSourceProd(1 To 1, 1 To 1)
+        ReDim arrSourceHelper(1 To 1, 1 To 1)
+        arrSourceProd(1, 1) = rngSourceProd.Value
+        arrSourceHelper(1, 1) = rngSourceHelper.Value
+    Else
+        arrSourceProd = rngSourceProd.Value
+        arrSourceHelper = rngSourceHelper.Value
+    End If
     
     Dim i As Long
     Dim pKey As String, pIndex As Variant
@@ -271,8 +279,7 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
         pKey = CStr(arrSourceProd(i, 1))
         pIndex = arrSourceHelper(i, 1)
         
-        ' Only add if Helper Index is not empty (Product exists in target)
-        If Not IsEmpty(pIndex) And Not IsError(pIndex) And CStr(pIndex) <> "" And pKey <> "" Then
+        If Not IsEmpty(pIndex) And Not IsError(pIndex) And pKey <> "" Then
             If Not dictProdIndex.exists(pKey) Then
                 dictProdIndex.Add pKey, CLng(pIndex)
             End If
@@ -280,16 +287,17 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
     Next i
     
     ' --- 5. PROCESS TARGET TABLE ---
-    ' Load Target Product Column into Memory
     Dim arrTargetProd As Variant
-    arrTargetProd = tblAssociatedData.ListColumns("ProductNumberText").DataBodyRange.Value
+    Dim rngTargetProd As Range
+    Set rngTargetProd = tblAssociatedData.ListColumns("ProductNumberText").DataBodyRange
     
-    ' Prepare Range Variables for Batch Coloring
-    ' We have 4 buckets:
-    ' 1. Color1 Dark (Odd Product, Odd Row)
-    ' 2. Color1 Light (Odd Product, Even Row)
-    ' 3. Color2 Dark (Even Product, Odd Row)
-    ' 4. Color2 Light (Even Product, Even Row)
+    ' *** FIX: Handle Single Row Case for Target ***
+    If rngTargetProd.Cells.Count = 1 Then
+        ReDim arrTargetProd(1 To 1, 1 To 1)
+        arrTargetProd(1, 1) = rngTargetProd.Value
+    Else
+        arrTargetProd = rngTargetProd.Value
+    End If
     
     Dim rngC1_Dark As Range, rngC1_Light As Range
     Dim rngC2_Dark As Range, rngC2_Light As Range
@@ -300,19 +308,14 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
     Dim prodIdx As Long
     Dim isProductOdd As Boolean
     
-    ' Loop through Target Table Data (In Memory = Fast)
     For i = 1 To UBound(arrTargetProd, 1)
         pKey = CStr(arrTargetProd(i, 1))
         
-        ' Identify the row object (we need this to build the Union range)
-        ' Note: tblAssociatedData.DataBodyRange.Rows(i) is relatively fast
         Set currentRange = tblAssociatedData.DataBodyRange.Rows(i)
         
-        ' Look up the Index for this product
         If dictProdIndex.exists(pKey) Then
             prodIdx = dictProdIndex(pKey)
             
-            ' Check if we switched to a new product block to reset the inner shade counter
             If pKey <> lastProd Then
                 currentRowInBlock = 1
                 lastProd = pKey
@@ -320,35 +323,26 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
                 currentRowInBlock = currentRowInBlock + 1
             End If
             
-            ' Is the Product Index Odd or Even?
             isProductOdd = (prodIdx Mod 2 <> 0)
             
+            ' Add to appropriate Union Range
             If isProductOdd Then
-                ' Product Group 1 (Blue)
                 If currentRowInBlock Mod 2 <> 0 Then
-                    ' Odd Row (Dark)
                     If rngC1_Dark Is Nothing Then Set rngC1_Dark = currentRange Else Set rngC1_Dark = Union(rngC1_Dark, currentRange)
                 Else
-                    ' Even Row (Light)
                     If rngC1_Light Is Nothing Then Set rngC1_Light = currentRange Else Set rngC1_Light = Union(rngC1_Light, currentRange)
                 End If
             Else
-                ' Product Group 2 (Beige)
                 If currentRowInBlock Mod 2 <> 0 Then
-                    ' Odd Row (Dark)
                     If rngC2_Dark Is Nothing Then Set rngC2_Dark = currentRange Else Set rngC2_Dark = Union(rngC2_Dark, currentRange)
                 Else
-                    ' Even Row (Light)
                     If rngC2_Light Is Nothing Then Set rngC2_Light = currentRange Else Set rngC2_Light = Union(rngC2_Light, currentRange)
                 End If
             End If
-            
         End If
     Next i
     
     ' --- 6. APPLY COLORS (Bulk Operation) ---
-    ' We apply the color 4 times total, instead of thousands of times.
-    
     If Not rngC1_Dark Is Nothing Then rngC1_Dark.Interior.Color = baseColor1
     If Not rngC1_Light Is Nothing Then rngC1_Light.Interior.Color = shadeColor1
     

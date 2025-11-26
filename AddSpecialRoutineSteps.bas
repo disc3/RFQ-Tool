@@ -33,7 +33,6 @@ Public Sub AddMaterialPreparingRoutineIfNeeded(ByVal productNumber As String)
     End If
     
     ' 4. CRITICAL: Fill Formulas Down BEFORE writing data
-    ' (ListRows.Add usually does this, but this guarantees it for the placeholder scenario too)
     If tblSelected.ListRows.Count > 1 Then
         destRow.Range.FillDown
     End If
@@ -92,8 +91,20 @@ Public Sub AddMaterialPreparingRoutines_Bulk()
     
     If tblProducts.DataBodyRange Is Nothing Then GoTo CleanExit
     
+    ' *** FIX START: Handle Single Row Case (Array safety) ***
+    Dim rngProd As Range
+    Set rngProd = tblProducts.DataBodyRange
     Dim arrProdData As Variant
-    arrProdData = tblProducts.DataBodyRange.Value
+    
+    If rngProd.Cells.Count = 1 Then
+        ' Force 1x1 Array if table is a single cell
+        ReDim arrProdData(1 To 1, 1 To 1)
+        arrProdData(1, 1) = rngProd.Value
+    Else
+        ' Standard assignment
+        arrProdData = rngProd.Value
+    End If
+    ' *** FIX END ***
     
     Dim idxProdNum As Long: idxProdNum = tblProducts.ListColumns("Product Number").Index
     Dim idxHelper As Long: idxHelper = tblProducts.ListColumns("Helper NeedsMaterialPreparingRoutine").Index
@@ -102,6 +113,7 @@ Public Sub AddMaterialPreparingRoutines_Bulk()
     Dim countToAdd As Long: countToAdd = 0
     Dim i As Long
     
+    ' UBound is now safe even if there is only 1 row
     For i = 1 To UBound(arrProdData, 1)
         If arrProdData(i, idxHelper) = True Then countToAdd = countToAdd + 1
     Next i
@@ -112,16 +124,12 @@ Public Sub AddMaterialPreparingRoutines_Bulk()
     Dim wsSelected As Worksheet: Set wsSelected = ThisWorkbook.Sheets("2. Routines")
     Dim tblSelected As ListObject: Set tblSelected = wsSelected.ListObjects("SelectedRoutines")
     
-    ' Map the columns we will WRITE to.
-    ' Any column NOT in this list will be handled by FillDown (Formulas).
     Dim colNames As Variant
     colNames = Array("Plant", "Product Number", "Macrophase", "Microphase", _
                      "Material", "Machine", "Wire/cable dimension diameter/section  (mm/mm2)", _
                      "Wire/component dimensions  (mm)", "Work Center Code", _
                      "tr", "te", "Number of Operations", "Number of Setups", "Sort Order")
     
-    ' Prepare a 2D array to hold ONLY the data we are writing
-    ' Dimensions: (1 to countToAdd, 1 to Number of Columns in our list above)
     Dim arrData() As Variant
     ReDim arrData(1 To countToAdd, 1 To UBound(colNames) + 1)
     
@@ -131,33 +139,19 @@ Public Sub AddMaterialPreparingRoutines_Bulk()
     For i = 1 To UBound(arrProdData, 1)
         If arrProdData(i, idxHelper) = True Then
             ' Fill the array row based on the order in colNames
-            ' 0: Plant
             arrData(currRow, 1) = templateData(8)
-            ' 1: Product Number
             arrData(currRow, 2) = arrProdData(i, idxProdNum)
-            ' 2: Macrophase
             arrData(currRow, 3) = "Stock"
-            ' 3: Microphase
             arrData(currRow, 4) = "Material preparing"
-            ' 4: Material
             arrData(currRow, 5) = templateData(0)
-            ' 5: Machine
             arrData(currRow, 6) = templateData(1)
-            ' 6: Wire 1
             arrData(currRow, 7) = templateData(2)
-            ' 7: Wire 2
             arrData(currRow, 8) = templateData(3)
-            ' 8: Work Center
             arrData(currRow, 9) = templateData(4)
-            ' 9: tr
             arrData(currRow, 10) = templateData(5)
-            ' 10: te
             arrData(currRow, 11) = templateData(6)
-            ' 11: Ops
             arrData(currRow, 12) = 1
-            ' 12: Setups
             arrData(currRow, 13) = 1
-            ' 13: Sort Order
             arrData(currRow, 14) = templateData(7)
             
             currRow = currRow + 1
@@ -171,32 +165,21 @@ Public Sub AddMaterialPreparingRoutines_Bulk()
 
     ' Determine where to start writing
     If initialRows = 1 And IsEmpty(tblSelected.DataBodyRange(1, cProdIdx)) Then
-        ' Case: Table has placeholder empty row
         startWriteRow = 1
         If countToAdd > 1 Then
             tblSelected.Resize tblSelected.Range.Resize(tblSelected.Range.Rows.Count + countToAdd - 1)
         End If
     Else
-        ' Case: Table has data
         startWriteRow = initialRows + 1
         tblSelected.Resize tblSelected.Range.Resize(tblSelected.Range.Rows.Count + countToAdd)
     End If
 
-    ' ** THE MAGIC STEP: Propagate Formulas **
-    ' We assume the row ABOVE the new block has the correct formulas.
-    ' We FillDown from that row through the new block.
+    ' Propagate Formulas
     If startWriteRow > 1 Then
-        ' Fill from row above startWriteRow, down to the end of new data
         tblSelected.DataBodyRange.Rows(startWriteRow - 1).Resize(countToAdd + 1).FillDown
-    Else
-        ' If we are at row 1, formulas should already be there in the placeholder.
-        ' But if not, we can't fill down from row 0. We assume the placeholder row is correct.
     End If
 
     ' --- 7. Write Data Columns ---
-    ' Now we overwrite the specific columns with our Hard Values.
-    ' The columns NOT in this loop retain the formulas from Step 6.
-    
     Dim cName As Variant
     Dim cIndex As Long
     Dim arrayCol As Long
@@ -207,14 +190,8 @@ Public Sub AddMaterialPreparingRoutines_Bulk()
         cName = colNames(arrayCol)
         cIndex = tblSelected.ListColumns(cName).Index
         
-        ' 1. Slice the specific column from our 2D array
-        ' (Get column arrayCol + 1 because Excel Index is 1-based)
         dataSlice = application.Index(arrData, 0, arrayCol + 1)
-        
-        ' 2. Define the destination range for just this column
         Set destRange = tblSelected.DataBodyRange.Cells(startWriteRow, cIndex).Resize(countToAdd, 1)
-        
-        ' 3. Paste the values
         destRange.Value = dataSlice
     Next arrayCol
     
@@ -231,7 +208,7 @@ ErrorHandler:
 End Sub
 
 ' ==========================================================================
-' PRIVATE HELPER: GetMaterialPreparingTemplateData (Unchanged)
+' PRIVATE HELPER: GetMaterialPreparingTemplateData
 ' ==========================================================================
 Private Function GetMaterialPreparingTemplateData() As Variant
     Dim wsDef As Worksheet, wsDB As Worksheet
@@ -248,14 +225,28 @@ Private Function GetMaterialPreparingTemplateData() As Variant
     
     Dim tblDB As ListObject
     Set tblDB = wsDB.ListObjects("RoutinesDB")
+    
+    If tblDB.DataBodyRange Is Nothing Then Exit Function
+    
+    ' *** FIX START: Handle Single Row Case for DB (Array safety) ***
+    Dim rngDB As Range
+    Set rngDB = tblDB.DataBodyRange
     Dim arrDB As Variant
-    arrDB = tblDB.DataBodyRange.Value
+    
+    If rngDB.Cells.Count = 1 Then
+        ReDim arrDB(1 To 1, 1 To 1)
+        arrDB(1, 1) = rngDB.Value
+    Else
+        arrDB = rngDB.Value
+    End If
+    ' *** FIX END ***
     
     Dim idxPlant As Long: idxPlant = tblDB.ListColumns("Plant").Index
     Dim idxMacro As Long: idxMacro = tblDB.ListColumns("Macrophase").Index
     Dim idxMicro As Long: idxMicro = tblDB.ListColumns("Microphase").Index
     
     Dim i As Long
+    ' UBound is now safe
     For i = 1 To UBound(arrDB, 1)
         If Trim(arrDB(i, idxPlant)) = selectedPlant And _
            Trim(arrDB(i, idxMacro)) = "Stock" And _
