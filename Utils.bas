@@ -232,9 +232,23 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
     Dim wsData As Worksheet: Set wsData = ThisWorkbook.Sheets(associatedSheetname)
     Dim tblAssociatedData As ListObject: Set tblAssociatedData = wsData.ListObjects(associatedTableName)
     
-    ' Check if Target Table has data
+    ' --- CHECK: Is the table "visually" empty? ---
     If tblAssociatedData.DataBodyRange Is Nothing Then GoTo CleanExit
     If tblFinalProducts.DataBodyRange Is Nothing Then GoTo CleanExit
+    
+    ' (Contains 1 row, but the Product Number cell is blank/empty)
+    If tblAssociatedData.ListRows.Count = 1 Then
+        Dim firstVal As Variant
+        ' Note: Using "ProductNumberText" as per your previous target table logic
+        firstVal = tblAssociatedData.DataBodyRange(1, tblAssociatedData.ListColumns("ProductNumberText").Index).Value
+        
+        If IsEmpty(firstVal) Or Trim(CStr(firstVal)) = "" Then
+            ' Table contains only a placeholder row. Exit.
+            ' Reset colors just in case
+            tblAssociatedData.DataBodyRange.Interior.Color = xlNone
+            GoTo CleanExit
+        End If
+    End If
     
     ' --- 2. DEFINE COLORS ---
     Dim baseColor1 As Long, baseColor2 As Long
@@ -376,8 +390,13 @@ Public Function LightenColor(ByVal baseColor As Long, ByVal factor As Double) As
     LightenColor = RGB(r, g, b)
 End Function
 
+Public Sub RunProductBasedFormattingBOM()
+    Call RunProductBasedFormatting("1. BOM Definition", "BOMDefinition", "Helper Format BOMs")
+End Sub
 
-
+Public Sub RunProductBasedFormattingRouting()
+    Call RunProductBasedFormatting("2. Routines", "SelectedRoutines", "Helper Format Routings")
+End Sub
 
 Sub SpeedOn()
     application.ScreenUpdating = False
