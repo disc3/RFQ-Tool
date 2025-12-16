@@ -1,119 +1,148 @@
 Attribute VB_Name = "DynamicRoutineForEachPlant"
 Sub GenerateERPRoutine()
-    Dim wsSelected As Worksheet
-    Dim wsRoutine As Worksheet
-    Dim wsOutput As Worksheet
-    Dim wsPlantVariables As Worksheet
-    Dim tblRoutine As ListObject
-    Dim tblOutput As ListObject
-    Dim tblPlantFormats As ListObject
+    ' --- 1. SETTINGS & VARIABLES ---
+    Dim wsSelected As Worksheet, wsRoutine As Worksheet, wsOutput As Worksheet, wsPlantVariables As Worksheet
+    Dim tblRoutine As ListObject, tblOutput As ListObject, tblPlantFormats As ListObject
     Dim FinalProductList As Collection
     Dim product As Variant
-    Dim routineRow As ListRow
-    Dim destRow As ListRow
-    Dim lastRow As Long
-    Dim i As Long
-    Dim selectedPlant As String
-    Dim formatSheetName As String
-    Dim outputTableName As String
+    Dim routineRow As ListRow, destRow As ListRow
+    Dim lastRow As Long, i As Long
+    Dim selectedPlant As String, formatSheetName As String, outputTableName As String
     Dim headerCount As Long
+    
+    ' Speed Optimization: Turn off "lights" and calculation
+    application.ScreenUpdating = False
+    application.Calculation = xlCalculationManual
+    application.EnableEvents = False
 
     ' Define worksheets
     Set wsSelected = ThisWorkbook.Sheets("2. Routines")
     Set wsPlantVariables = ThisWorkbook.Sheets("Plant Variables")
     Set wsOutput = ThisWorkbook.Sheets("6. Routine uploaders")
 
-    ' Clear the "6. Routine uploaders" sheet
+    ' Clear the "6. Routine uploaders" sheet fully
     wsOutput.Cells.Clear
 
-    ' Get the selected plant from "2. Routines" sheet
-    selectedPlant = wsSelected.Range("D5").Value
+    ' Get the selected plant
+    selectedPlant = wsSelected.Range("D5").Text
 
-    ' Retrieve the appropriate format sheet name from "PlantExportFormats" table
+    ' --- 2. FIND THE FORMAT SHEET ---
     On Error Resume Next
     Set tblPlantFormats = wsPlantVariables.ListObjects("PlantExportFormats")
     On Error GoTo 0
 
     If tblPlantFormats Is Nothing Then
-        MsgBox "Table 'PlantExportFormats' not found in 'Plant Variables' sheet.", vbCritical
-        Exit Sub
+        MsgBox "Table 'PlantExportFormats' not found.", vbCritical
+        GoTo Cleanup ' Go to the end to turn settings back on
     End If
 
-    ' Find the format sheet name for the selected plant
+    ' Find the format sheet name (Optimized search logic)
     formatSheetName = ""
-    For Each plantRow In tblPlantFormats.ListRows
-        If plantRow.Range(tblPlantFormats.ListColumns("Selected Plant").Index).Value = selectedPlant Then
-            formatSheetName = plantRow.Range(tblPlantFormats.ListColumns("ERP Routing Format Sheet").Index).Value
-            Exit For
-        End If
-    Next plantRow
+    Dim foundRow As Range
+    ' Attempt to find the plant in the DataBodyRange of the table column
+    On Error Resume Next
+    formatSheetName = application.VLookup(selectedPlant, tblPlantFormats.DataBodyRange, _
+                      tblPlantFormats.ListColumns("ERP Routing Format Sheet").Index, False)
+    On Error GoTo 0
 
-    ' Check if the format sheet name was found
-    If formatSheetName = "" Then
-        MsgBox "No ERP export format sheet found for the selected plant: " & selectedPlant, vbExclamation
-        Exit Sub
+    If formatSheetName = "" Or formatSheetName = "Error 2042" Then
+        MsgBox "No ERP export format sheet found for: " & selectedPlant, vbExclamation
+        GoTo Cleanup
     End If
 
-    ' Define the table name as "ERPRouting{Plant}"
-    outputTableName = "ERPRouting"
-
-    ' Set wsRoutine to the format sheet found
+    ' Verify sheet exists
     On Error Resume Next
     Set wsRoutine = ThisWorkbook.Sheets(formatSheetName)
     On Error GoTo 0
-
     If wsRoutine Is Nothing Then
-        MsgBox "The ERP Routing Format sheet '" & formatSheetName & "' does not exist.", vbCritical
-        Exit Sub
+        MsgBox "Sheet '" & formatSheetName & "' does not exist.", vbCritical
+        GoTo Cleanup
     End If
 
-    ' Create the ERP Routing table with the name "ERPRouting{Plant}" if it doesn't already exist
-    On Error Resume Next
-    Set tblOutput = wsOutput.ListObjects(outputTableName)
-    On Error GoTo 0
-    If tblOutput Is Nothing Then
-        Set tblOutput = wsOutput.ListObjects.Add(xlSrcRange, wsOutput.Range("A1:R1"), , xlYes)
-        tblOutput.name = outputTableName
-    End If
+    ' --- 3. SETUP OUTPUT TABLE (DYNAMICALLY) ---
+    outputTableName = "ERPRouting"
+    Set tblRoutine = wsRoutine.ListObjects(1) ' The Source Table
+    
+    ' Count how many columns the Source has. This fixes your "New Column" bug.
+    headerCount = tblRoutine.headerRowRange.Columns.Count
 
-    ' Get the Routine table on the format sheet and its headers
-    Set tblRoutine = wsRoutine.ListObjects(1) ' Assuming there is only one table on the format sheet
+    ' Create output table sized exactly to the source columns
+    ' We use .Resize to make the range match the source width automatically
+    Set tblOutput = wsOutput.ListObjects.Add(xlSrcRange, wsOutput.Range("A1").Resize(1, headerCount), , xlYes)
+    tblOutput.name = outputTableName
 
-    ' Set headers in ERP Routine table from the format table
+    ' Copy headers
     tblRoutine.headerRowRange.Copy
     wsOutput.Range("A1").PasteSpecial xlPasteValues
     application.CutCopyMode = False
 
-    ' Collect unique products from SelectedRoutines table
+    ' --- 4. GATHER DATA ---
     Set FinalProductList = New Collection
-    lastRow = wsSelected.Cells(wsSelected.Rows.Count, 1).End(xlUp).row
+    lastRow = wsSelected.Cells(wsSelected.Rows.Count, 2).End(xlUp).row ' Check column 2 explicitly
+    
     On Error Resume Next
-    For i = 2 To lastRow ' Start from row 2 to skip the header
-        If Trim(wsSelected.Cells(i, 2).Value) <> "" And wsSelected.Cells(i, 2).Value <> "ERP Part Number" Then
-            FinalProductList.Add wsSelected.Cells(i, 2).Value, CStr(wsSelected.Cells(i, 2).Value) ' Assuming ERP Part Number is in column 2
+    For i = 2 To lastRow
+        Dim cellVal As Variant
+        cellVal = wsSelected.Cells(i, 2).Text
+        ' Basic check to ensure valid data
+        If Len(cellVal) > 0 And cellVal <> "ERP Part Number" Then
+            FinalProductList.Add cellVal, cellVal
         End If
     Next i
     On Error GoTo 0
 
-    ' Copy the structure for each unique product
-    headerCount = tblRoutine.headerRowRange.Columns.Count
+    ' --- 5. THE BUILD LOOP (OPTIMIZED) ---
+    
+    ' If there are no products, stop here
+    If FinalProductList.Count = 0 Then
+        MsgBox "No products found to process.", vbExclamation
+        GoTo Cleanup
+    End If
 
     For Each product In FinalProductList
-        ' Loop through each row in the specified format table
         For Each routineRow In tblRoutine.ListRows
-            ' Add a new row in the ERP Routine table
+            ' Add a new row
             Set destRow = tblOutput.ListRows.Add
             
-            ' Populate the Product column and copy the rest from the format table
-            destRow.Range(1).Value = product ' Assuming Product is the first column
-            For i = 2 To headerCount ' Start from the second column to copy remaining formulas
-                destRow.Range(i).Formula = routineRow.Range(i).Formula ' Copy formulas instead of values
-            Next i
+            ' Set the Product Name (Column 1)
+            destRow.Range(1, 1).value = product
+            
+            ' OPTIMIZATION: Copy ALL formulas in the row at once!
+            ' We skip column 1 (Product) and copy from Col 2 to the end.
+            ' This is ONE action per row, instead of 20+ loops per row.
+            destRow.Range(1, 2).Resize(1, headerCount - 1).Formula = _
+                routineRow.Range(1, 2).Resize(1, headerCount - 1).Formula
         Next routineRow
     Next product
 
-    'MsgBox "ERP Routing generated successfully for " & selectedPlant & "!", vbInformation
-    'wsOutput.Activate
-End Sub
 
+    ' --- 6. APPLY PLANT 14 LOGIC (Post-Processing) ---
+    ' Check if the selected plant string starts with "14"
+    If Left(selectedPlant, 2) = "14" Then
+        On Error Resume Next
+        ' Attempt to reference the "Plnt" column
+        Dim plntCol As ListColumn
+        Set plntCol = tblOutput.ListColumns("Plnt")
+        
+        If Not plntCol Is Nothing Then
+            ' If the column exists, overwrite the entire column with the plant code
+            ' This is instant, even for 10,000 rows
+            plntCol.DataBodyRange.value = selectedPlant
+        Else
+            ' Optional: Notify if the column is missing
+            MsgBox "Note: You selected a '14' plant, but the output table has no 'Plnt' column.", vbExclamation
+        End If
+        On Error GoTo 0
+    End If
+
+    wsOutput.Activate
+    MsgBox "ERP Routing generated successfully!", vbInformation
+
+Cleanup:
+    ' Restore settings so Excel works normally again
+    application.ScreenUpdating = True
+    application.Calculation = xlCalculationAutomatic
+    application.EnableEvents = True
+
+End Sub
 
