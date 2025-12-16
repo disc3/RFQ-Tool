@@ -158,12 +158,14 @@ Private Sub btnFinalizeVariant_Click()
             newRow.Range.Formula = application.Index(newRowsData, r, 0)
         Next r
     End If
-    
+    Dim varName As String
+    varName = variantName
     Unload Me
     ws.Activate
-    Call Utils.RunProductBasedFormatting("2. Routines", "SelectedRoutines")
+    'Call Utils.RunProductBasedFormatting("2. Routines", "SelectedRoutines", "Helper Format Routings")
+    Call Sort.SortSelectedRoutingByProduct
     ActiveWorkbook.Sheets("1. BOM Definition").Activate
-    MsgBox "Routine variant '" & variantName & "' created successfully.", vbInformation
+    MsgBox "Routine variant '" & varName & "' created successfully.", vbInformation
     
 CleanExit:
     application.Calculation = xlCalculationAutomatic

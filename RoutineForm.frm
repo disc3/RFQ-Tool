@@ -18,6 +18,19 @@ Public workCenterCodeTemp As String ' Global variable to store the Work Center C
 
 Private mPreselectedComponent As String ' Private variable to store the preselected component
 
+' --- LISTVIEW COLUMN MAPPING CONSTANTS ---
+' This makes your code "Break-Proof" if you add more columns later.
+Private Const COL_MICROPHASE As Long = 1
+Private Const COL_MATERIAL As Long = 2
+Private Const COL_MACHINE As Long = 3
+'Private Const COL_NEW_COLUMN As Long = 4  ' <--- THIS IS YOUR NEW COLUMN
+Private Const COL_WIRE_DIA As Long = 5
+Private Const COL_COMP_DIM As Long = 6
+Private Const COL_SETUP As Long = 7
+Private Const COL_MFG As Long = 8
+Private Const COL_NUM_OPS As Long = 9
+Private Const COL_SORT As Long = 10
+
 
 ' Property to allow setting preselectedComponent from outside
 Public Property Let PreselectedComponent(Value As String)
@@ -119,25 +132,28 @@ Public Sub SetupForm()
         Next i
     End If
 
-    ' Set up the ListView headers in the specified order
+' Set up the ListView headers
     With Me.OperationsListView
         .View = lvwReport
         .Gridlines = True
         .FullRowSelect = True
         .HideColumnHeaders = False
         .LabelEdit = lvwManual
+        .ListItems.Clear ' Safety clear
+        .columnHeaders.Clear ' Safety clear
 
-        ' Add columns in the specified order
-        .columnHeaders.Add , , "Operation", 110
-        .columnHeaders.Add , , "Material", 100
-        .columnHeaders.Add , , "Machine", 100
-        .columnHeaders.Add , , "Wire/Cable Diameter", 65
-        .columnHeaders.Add , , "Wire/Component Dimension", 60
-        .columnHeaders.Add , , "Setup [sec]", 60
-        .columnHeaders.Add , , "Manufacturing [sec]", 60
-        .columnHeaders.Add , , "Number of Operations", 75
-        ' Hidden Sort Order column (width 0)
-        .columnHeaders.Add , , "Sort Order", 0
+        ' Add columns using our Constants to ensure alignment
+        ' Note: The Index in .Add must match the Constant values defined above
+        .columnHeaders.Add , , "Operation", 110                  ' Col 1
+        .columnHeaders.Add , , "Material", 100                   ' Col 2
+        .columnHeaders.Add , , "Machine", 100                    ' Col 3
+        '.columnHeaders.Add , , "Extra Info", 80                  ' Col 4 <--- UPDATE NAME
+        .columnHeaders.Add , , "Wire/Cable Diameter", 65         ' Col 5
+        .columnHeaders.Add , , "Wire/Component Dimension", 60    ' Col 6
+        .columnHeaders.Add , , "Setup [sec]", 60                 ' Col 7
+        .columnHeaders.Add , , "Manufacturing [sec]", 60         ' Col 8
+        .columnHeaders.Add , , "Number of Operations", 75        ' Col 9
+        .columnHeaders.Add , , "Sort Order", 0                   ' Col 10 (Hidden)
     End With
 End Sub
 
@@ -183,6 +199,7 @@ Private Sub MacrophaseSelect_Change()
     Dim machineValue As String
     Dim wireCableDimension As String
     Dim wireComponentDimension As String
+    Dim newColValue As String ' Variable for the new column data
 
     ' Set the tables for RoutinesDB and SelectedRoutines
     Set tblRoutinesDB = ThisWorkbook.Sheets("RoutinesDB").ListObjects("RoutinesDB")
@@ -203,15 +220,17 @@ Private Sub MacrophaseSelect_Change()
             ' Get routine details
             trValue = routineRow.Range(tblRoutinesDB.ListColumns("tr").Index).Value
             teValue = routineRow.Range(tblRoutinesDB.ListColumns("te").Index).Value
-            microphaseValue = Trim(routineRow.Range(tblRoutinesDB.ListColumns("Microphase").Index).Value)
-            materialValue = Trim(routineRow.Range(tblRoutinesDB.ListColumns("Material").Index).Value)
-            machineValue = Trim(routineRow.Range(tblRoutinesDB.ListColumns("Machine").Index).Value)
-            wireCableDimension = Trim(routineRow.Range(tblRoutinesDB.ListColumns("Wire/cable dimension diameter/section  (mm/mm2)").Index).Value)
-            wireComponentDimension = Trim(routineRow.Range(tblRoutinesDB.ListColumns("Wire/component dimensions  (mm)").Index).Value)
-
+            microphaseValue = Trim$(routineRow.Range(tblRoutinesDB.ListColumns("Microphase").Index).Value)
+            materialValue = Trim$(routineRow.Range(tblRoutinesDB.ListColumns("Material").Index).Value)
+            machineValue = Trim$(routineRow.Range(tblRoutinesDB.ListColumns("Machine").Index).Value)
+            wireCableDimension = Trim$(routineRow.Range(tblRoutinesDB.ListColumns("Wire/cable dimension diameter/section  (mm/mm2)").Index).Value)
+            wireComponentDimension = Trim$(routineRow.Range(tblRoutinesDB.ListColumns("Wire/component dimensions  (mm)").Index).Value)
+            If materialValue = "SSH according to length" Then
+                Debug.Print materialValue & "; "; wireCableDimension & "; " & wireComponentDimension
+            End If
             ' Skip rows without "tr" or "te" if the checkbox is not ticked
             If Me.chkShowAllOperations.Value = False Then
-                If IsEmpty(trValue) And IsEmpty(teValue) Then
+                If (IsEmpty(trValue) And IsEmpty(teValue)) Or (trValue = 0 And teValue = 0) Then
                     GoTo NextRoutine
                 End If
             End If
@@ -219,25 +238,30 @@ Private Sub MacrophaseSelect_Change()
             ' Default Number of Operations to empty
             numOperationsValue = ""
 
-           ' Check for a match in SelectedRoutines (including Component)
+            ' Check for a match in SelectedRoutines (including Component)
             For Each selectedRow In tblSelectedRoutines.ListRows
-                If Trim(selectedRow.Range(tblSelectedRoutines.ListColumns("Product Number").Index).Value) = selectedProduct And _
-                   Trim(selectedRow.Range(tblSelectedRoutines.ListColumns("Macrophase").Index).Value) = selectedMacrophase And _
-                   Trim(selectedRow.Range(tblSelectedRoutines.ListColumns("Microphase").Index).Value) = microphaseValue And _
-                   Trim(selectedRow.Range(tblSelectedRoutines.ListColumns("Material").Index).Value) = materialValue And _
-                   Trim(selectedRow.Range(tblSelectedRoutines.ListColumns("Machine").Index).Value) = machineValue And _
-                   Trim(selectedRow.Range(tblSelectedRoutines.ListColumns("Wire/cable dimension diameter/section  (mm/mm2)").Index).Value) = wireCableDimension And _
-                   Trim(selectedRow.Range(tblSelectedRoutines.ListColumns("Wire/component dimensions  (mm)").Index).Value) = wireComponentDimension And _
-                   Trim(selectedRow.Range(tblSelectedRoutines.ListColumns("Component").Index).Value) = selectedComponent Then
+                
+                ' USE THE NEW HELPER FUNCTION HERE
+                ' We use a boolean flag to track if all match, to make debugging easier
+                Dim isMatch As Boolean
+                isMatch = True
+                
+                If Not ValuesMatch(selectedRow.Range(tblSelectedRoutines.ListColumns("Product Number").Index).Value, selectedProduct) Then isMatch = False
+                If isMatch And Not ValuesMatch(selectedRow.Range(tblSelectedRoutines.ListColumns("Macrophase").Index).Value, selectedMacrophase) Then isMatch = False
+                If isMatch And Not ValuesMatch(selectedRow.Range(tblSelectedRoutines.ListColumns("Microphase").Index).Value, microphaseValue) Then isMatch = False
+                If isMatch And Not ValuesMatch(selectedRow.Range(tblSelectedRoutines.ListColumns("Material").Index).Value, materialValue) Then isMatch = False
+                If isMatch And Not ValuesMatch(selectedRow.Range(tblSelectedRoutines.ListColumns("Machine").Index).Value, machineValue) Then isMatch = False
+                If isMatch And Not ValuesMatch(selectedRow.Range(tblSelectedRoutines.ListColumns("Wire/cable dimension diameter/section  (mm/mm2)").Index).Value, wireCableDimension) Then isMatch = False
+                If isMatch And Not ValuesMatch(selectedRow.Range(tblSelectedRoutines.ListColumns("Wire/component dimensions  (mm)").Index).Value, wireComponentDimension) Then isMatch = False
+                If isMatch And Not ValuesMatch(selectedRow.Range(tblSelectedRoutines.ListColumns("Component").Index).Value, selectedComponent) Then isMatch = False
+                
+                ' If we survived all checks
+                If isMatch Then
             
                     ' Check if the Microphase is "Bunching"
                     If microphaseValue = "Bunching" Then
                         ' Display the evaluated formula result for the ListView
-                        If selectedRow.Range(tblSelectedRoutines.ListColumns("Number of Operations").Index).HasFormula Then
-                            numOperationsValue = selectedRow.Range(tblSelectedRoutines.ListColumns("Number of Operations").Index).Value
-                        Else
-                            numOperationsValue = selectedRow.Range(tblSelectedRoutines.ListColumns("Number of Operations").Index).Value
-                        End If
+                        numOperationsValue = selectedRow.Range(tblSelectedRoutines.ListColumns("Number of Operations").Index).Value
                     Else
                         ' For non-Bunching rows, use the stored value
                         numOperationsValue = selectedRow.Range(tblSelectedRoutines.ListColumns("Number of Operations").Index).Value
@@ -877,6 +901,7 @@ Private Sub PersistOperationFromListItem(li As listItem)
     idxComp = loDest.ListColumns("Component").Index
     idxMac = loDest.ListColumns("Macrophase").Index
     idxMicro = loDest.ListColumns("Microphase").Index
+    'idxNewCol = loDest.ListColumns("YourExcelHeaderName").Index
     idxMat = loDest.ListColumns("Material").Index
     idxMachine = loDest.ListColumns("Machine").Index
     idxDia = loDest.ListColumns("Wire/cable dimension diameter/section  (mm/mm2)").Index ' 2 Leerzeichen
@@ -1029,4 +1054,63 @@ Private Function SafeCDbl(ByVal inputValue As Variant) As Double
     If IsNumeric(cleanValue) Then
         SafeCDbl = CDbl(cleanValue)
     End If
+End Function
+
+' Helper function to compare two values safely
+Private Function ValuesMatch(val1 As Variant, val2 As Variant) As Boolean
+    Dim s1 As String
+    Dim s2 As String
+    
+    ' 1. Convert to string and Lowercase
+    s1 = LCase(CStr(val1 & ""))
+    s2 = LCase(CStr(val2 & ""))
+    
+    ' 2. CLEANUP using the Allowlist (Fixes the Ghost ?)
+    s1 = CleanString(s1)
+    s2 = CleanString(s2)
+    
+    ' 3. Remove spaces for tighter comparison (optional but recommended)
+    s1 = Replace(s1, " ", "")
+    s2 = Replace(s2, " ", "")
+    
+    ' 4. Direct Comparison
+    If s1 = s2 Then
+        ValuesMatch = True
+        Exit Function
+    Else
+        ' Optional: Handle numeric equivalency (e.g. "10" vs "10.0")
+        If IsNumeric(s1) And IsNumeric(s2) Then
+            If val(s1) = val(s2) Then ValuesMatch = True
+        End If
+    End If
+End Function
+
+' Helper: Only keeps characters we definitely want (A-Z, 0-9, and standard symbols)
+Private Function CleanString(ByVal txt As String) As String
+    Dim i As Long
+    Dim char As String
+    Dim result As String
+    Dim code As Long
+    
+    For i = 1 To Len(txt)
+        char = Mid(txt, i, 1)
+        code = AscW(char) ' Use AscW for Unicode support
+        
+        Select Case code
+            Case 48 To 57   ' 0-9
+                result = result & char
+            Case 65 To 90   ' A-Z
+                result = result & char
+            Case 97 To 122  ' a-z
+                result = result & char
+            Case 44, 46, 45, 47, 60, 62, 40, 41, 32 ' Standard symbols: , . - / < > ( ) [Space]
+                result = result & char
+            ' Add any specific German chars if needed (Ä=196, etc),
+            ' but usually Dimensions don't need them.
+            Case Else
+                ' Do nothing - this strips the Ghost Character!
+        End Select
+    Next i
+    
+    CleanString = result
 End Function

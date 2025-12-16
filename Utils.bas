@@ -369,7 +369,7 @@ CleanExit:
     Exit Sub
 
 ErrorHandler:
-    MsgBox "Error in Product Based Formatting: " & Err.description, vbCritical
+    MsgBox "Error in Product Based Formatting (color coding): " & Err.description, vbInformation
     Resume CleanExit
 End Sub
 
