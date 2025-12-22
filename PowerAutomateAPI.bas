@@ -20,7 +20,7 @@ Public Sub SendFullyValidatedRFQ()
     Set tblProjectData = wsProjectData.ListObjects("ProjectData")
 
     ' Get the validation message from cell J7
-    validationMessage = wsValidation.Range("J7").Value
+    validationMessage = wsValidation.Range("J7").value
 
     ' Ensure RFQ is valid before proceeding
     If validationMessage <> "All Products verified!" Then
@@ -31,14 +31,14 @@ Public Sub SendFullyValidatedRFQ()
 
     ' Retrieve relevant data from the ProjectData table
     On Error Resume Next
-    RFQNumber = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("RFQ Number (CRM Opportunity)").Index).Value
-    AOV = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Offered volume p.a. in EUR").Index).Value
-    NumberOfLAPPComponents = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Number of Lapp components").Index).Value
-    NumberOfThirdPartyComponents = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Number of third party components").Index).Value
-    ValueOfLAPPComponents = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Value of Lapp components").Index).Value
-    ValueOfThirdPartyComponents = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Value of third party components").Index).Value
-    OverstockValue = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Overstock value").Index).Value
-    OverstockPercentageOfMargin = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Overstock pct of margin").Index).Value
+    RFQNumber = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("RFQ Number (CRM Opportunity)").Index).value
+    AOV = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Offered volume p.a. in EUR").Index).value
+    NumberOfLAPPComponents = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Number of Lapp components").Index).value
+    NumberOfThirdPartyComponents = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Number of third party components").Index).value
+    ValueOfLAPPComponents = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Value of Lapp components").Index).value
+    ValueOfThirdPartyComponents = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Value of third party components").Index).value
+    OverstockValue = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Overstock value").Index).value
+    OverstockPercentageOfMargin = tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Overstock pct of margin").Index).value
     On Error GoTo 0
 
     ' Validate the required data exists
@@ -51,9 +51,9 @@ Public Sub SendFullyValidatedRFQ()
     UpdateCommentsByProductInProjectData commentsText   ' <<< NEW
 
     ' Update the status and add the current UTC time
-    tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Status").Index).Value = "Full RFQ Validated"
-    DateValue = Format(Now, "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
-    tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("RFQ valuation completion time").Index).Value = DateValue
+    tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("Status").Index).value = "Full RFQ Validated"
+    DateValue = GetISOTimestamp() ' Current UTC time
+    tblProjectData.ListRows(1).Range(tblProjectData.ListColumns("RFQ valuation completion time").Index).value = DateValue
 
     ' Prepare additional data for Power Automate
     AdditionalData.Add "AOV", AOV
@@ -81,7 +81,7 @@ Private Sub CheckAndSendRFQ()
     Set wsValidation = ThisWorkbook.Sheets("3. Clarification Validation")
 
     ' Get the value of cell J7
-    validationMessage = wsValidation.Range("J7").Value
+    validationMessage = wsValidation.Range("J7").value
 
     ' Check if the RFQ is valid
     If validationMessage = "All Products verified!" Then
@@ -106,113 +106,153 @@ Private Sub SendToPowerAutomate(status As String, Optional AdditionalData As Obj
     Dim purchaser As String
     Dim comment As String
     Dim PlantInternalID As String
-    userID = application.UserName ' use Application.UserName  or Environ("USERNAME") if you prefer
-
-    ' Set up the Power Automate URL (replace with the URL of your flow)
-    url = ActiveWorkbook.Sheets("Global Variables").Cells(7, 2).Text
-
-    ' Set up the HTTP request object
-    Set http = CreateObject("MSXML2.XMLHTTP.6.0")
     
-    ' Define the ProjectData table
+    userID = application.UserName
+    url = ActiveWorkbook.Sheets("Global Variables").Cells(7, 2).Text
+    
+    Set http = CreateObject("MSXML2.XMLHTTP.6.0")
     Set tbl = ThisWorkbook.Sheets("0. ProjectData").ListObjects("ProjectData")
     
-    ' Get the RFQ Number
-    RFQNumber = tbl.ListRows(1).Range(tbl.ListColumns("RFQ Number (CRM Opportunity)").Index).Value
+    ' Get values with null handling
+    RFQNumber = SafeString(tbl.ListRows(1).Range(tbl.ListColumns("RFQ Number (CRM Opportunity)").Index).value)
+    engineer = SafeString(tbl.ListRows(1).Range(tbl.ListColumns("Calculation Engineer").Index).value)
+    purchaser = SafeString(tbl.ListRows(1).Range(tbl.ListColumns("Purchasing Responsible").Index).value)
+    comment = SafeString(tbl.ListRows(1).Range(tbl.ListColumns("Comment from plant (optional)").Index).value)
+    PlantInternalID = SafeString(tbl.ListRows(1).Range(tbl.ListColumns("Internal ID").Index).value)
     
-    engineer = tbl.ListRows(1).Range(tbl.ListColumns("Calculation Engineer").Index).Value
-    purchaser = tbl.ListRows(1).Range(tbl.ListColumns("Purchasing Responsible").Index).Value
-    comment = tbl.ListRows(1).Range(tbl.ListColumns("Comment from plant (optional)").Index).Value
-    PlantInternalID = tbl.ListRows(1).Range(tbl.ListColumns("Internal ID").Index).Value
-
-    ' Get the current UTC time
-    DateValue = Format(Now, "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
+    DateValue = GetISOTimestamp()
     
-    ' Construct the JSON payload
-    requestBody = "{""RFQID"": """ & JsonEscape(RFQNumber) & """, " & _
-                  """PlantInternalID"": """ & JsonEscape(PlantInternalID) & """, " & _
-                  """Status"": """ & JsonEscape(status) & """, " & _
-                  """Date"": """ & DateValue & """, " & _
-                  """CalcEngineer"": """ & JsonEscape(engineer) & """, " & _
-                  """PurResponsible"": """ & JsonEscape(purchaser) & """, " & _
-                  """CommentFromPlant"": """ & JsonEscape(comment) & """, " & _
-                  """UserID"": """ & JsonEscape(userID) & """"
-
-    ' --- Ensure CommentsByProduct is present (unless already provided) ---
+    ' Build JSON using array (cleaner and safer)
+    Dim jsonParts() As String
+    ReDim jsonParts(0 To 7)
+    
+    jsonParts(0) = """RFQID"": """ & JsonEscape(RFQNumber) & """"
+    jsonParts(1) = """PlantInternalID"": """ & JsonEscape(PlantInternalID) & """"
+    jsonParts(2) = """Status"": """ & JsonEscape(status) & """"
+    jsonParts(3) = """Date"": """ & DateValue & """"
+    jsonParts(4) = """CalcEngineer"": """ & JsonEscape(engineer) & """"
+    jsonParts(5) = """PurResponsible"": """ & JsonEscape(purchaser) & """"
+    jsonParts(6) = """CommentFromPlant"": """ & JsonEscape(comment) & """"
+    jsonParts(7) = """UserID"": """ & JsonEscape(userID) & """"
+    
+    requestBody = "{" & Join(jsonParts, ", ")
+    
+    ' Handle CommentsByProduct
     Dim hasCBP As Boolean: hasCBP = False
+    Dim cbp As String
+    
     If Not AdditionalData Is Nothing Then
         For Each key In AdditionalData.Keys
             If CStr(key) = "CommentsByProduct" Then
                 hasCBP = True
+                cbp = SafeString(AdditionalData(key))
+                requestBody = requestBody & ", ""CommentsByProduct"": """ & JsonEscape(cbp) & """"
                 Exit For
             End If
         Next key
     End If
+    
+    ' If not in AdditionalData, check ProjectData table
     If Not hasCBP Then
-        Dim colCmt As Long, cbp As String
+        Dim colCmt As Long
         On Error Resume Next
         colCmt = tbl.ListColumns("Comments by Product").Index
         On Error GoTo 0
         If colCmt > 0 And tbl.ListRows.Count > 0 Then
-            cbp = CStr(tbl.ListRows(1).Range(colCmt).Value)
+            cbp = SafeString(tbl.ListRows(1).Range(colCmt).value)
             If Len(cbp) > 0 Then
                 requestBody = requestBody & ", ""CommentsByProduct"": """ & JsonEscape(cbp) & """"
             End If
         End If
     End If
-    ' --------------------------------------------------------------------
-
-    ' Append additional data to the payload if provided
+    
+    ' Add remaining AdditionalData (skip CommentsByProduct since we already handled it)
     If Not AdditionalData Is Nothing Then
         For Each key In AdditionalData.Keys
-            If IsNumeric(AdditionalData(key)) Then
-                Dim numericValueAsString As String
-                numericValueAsString = Replace(CStr(AdditionalData(key)), application.International(xlDecimalSeparator), ".")
-                requestBody = requestBody & ", """ & JsonEscape(CStr(key)) & """: " & numericValueAsString
-            Else
-                requestBody = requestBody & ", """ & JsonEscape(CStr(key)) & """: """ & JsonEscape(CStr(AdditionalData(key))) & """"
+            If CStr(key) <> "CommentsByProduct" Then
+                If IsNumeric(AdditionalData(key)) Then
+                    requestBody = requestBody & ", """ & JsonEscape(CStr(key)) & """: " & FormatNumericForJson(AdditionalData(key))
+                Else
+                    requestBody = requestBody & ", """ & JsonEscape(CStr(key)) & """: """ & JsonEscape(SafeString(AdditionalData(key))) & """"
+                End If
             End If
         Next key
     End If
-
+    
     requestBody = requestBody & "}"
     
-    ' Send the request
+    ' DEBUG: Log the actual JSON being sent
+    Debug.Print "=== JSON PAYLOAD ==="
+    Debug.Print requestBody
+    Debug.Print "===================="
+    
     With http
         .Open "POST", url, False
-        .setRequestHeader "Content-Type", "application/json"
+        .setRequestHeader "Content-Type", "application/json; charset=utf-8"
         .send requestBody
     End With
     
-    ' Check for successful response
+    ' Enhanced error reporting
     If http.status = 200 Or http.status = 202 Then
         Set wsOutput = ThisWorkbook.Sheets("4. Sales Calculation (Internal)")
-        wsOutput.Range("N1").Value = "RFQ data sent to Funnel File at " & DateValue
+        wsOutput.Range("N1").value = "RFQ data sent to Funnel File at " & DateValue
     Else
-        MsgBox "Error: " & http.status & " - " & http.statusText, vbCritical
+        MsgBox "Error: " & http.status & " - " & http.statusText & vbCrLf & vbCrLf & _
+               "Response: " & http.responseText & vbCrLf & vbCrLf & _
+               "Payload sent: " & Left(requestBody, 500), vbCritical
+        Debug.Print "ERROR RESPONSE: " & http.responseText
     End If
     
     Set http = Nothing
 End Sub
 
+' NEW: Safe string conversion
+Private Function SafeString(ByVal value As Variant) As String
+    If IsEmpty(value) Or IsNull(value) Then
+        SafeString = ""
+    Else
+        SafeString = CStr(value)
+    End If
+End Function
 
+' UPDATED: Better numeric formatting
+Private Function FormatNumericForJson(ByVal value As Variant) As String
+    Dim result As String
+    result = CStr(value)
+    ' Replace comma with period regardless of locale
+    result = Replace(result, ",", ".")
+    FormatNumericForJson = result
+End Function
 
-
+' UPDATED: Enhanced JsonEscape
 Private Function JsonEscape(str As String) As String
-    ' Purpose: Escapes a string to be safely embedded in a JSON payload.
-    '          Replaces backslashes, double quotes, and control characters.
+    If Len(str) = 0 Then
+        JsonEscape = ""
+        Exit Function
+    End If
+    
     Dim temp As String
+    temp = str
     
-    ' Order of replacement can be important, especially for backslash.
-    temp = Replace(str, "\", "\\")   ' Must be done first
-    temp = Replace(temp, """", "\""") ' Escape double quotes
-    temp = Replace(temp, vbCrLf, "\r\n") ' Windows-style newline (can also do Cr and Lf separately)
-    temp = Replace(temp, vbCr, "\r")    ' Carriage return
-    temp = Replace(temp, vbLf, "\n")    ' Line feed
-    temp = Replace(temp, vbTab, "\t")   ' Tab
-    ' Add other replacements if needed (e.g., vbFormFeed for \f, vbBack for \b)
+    ' Order matters - backslash must be first
+    temp = Replace(temp, "\", "\\")
+    temp = Replace(temp, """", "\""")
+    temp = Replace(temp, vbCrLf, "\n")  ' Simplified to \n
+    temp = Replace(temp, vbCr, "\n")
+    temp = Replace(temp, vbLf, "\n")
+    temp = Replace(temp, vbTab, "\t")
+    ' Remove any control characters (ASCII < 32) except newline/tab
+    Dim i As Long
+    Dim cleanStr As String
+    For i = 1 To Len(temp)
+        Dim ch As String
+        ch = Mid(temp, i, 1)
+        If Asc(ch) >= 32 Or ch = vbLf Or ch = vbTab Then
+            cleanStr = cleanStr & ch
+        End If
+    Next i
     
-    JsonEscape = temp
+    JsonEscape = cleanStr
 End Function
 
 Public Sub AddFirstProduct()
@@ -225,9 +265,9 @@ Public Sub AddFirstProduct()
     Set tbl = ws.ListObjects("ProjectData")
 
     ' Update the status and add the current UTC time
-    tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "RFQ Calculation Started"
-    DateValue = Format(Now, "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
-    tbl.ListRows(1).Range(tbl.ListColumns("RFQ calculation start time").Index).Value = DateValue
+    tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "RFQ Calculation Started"
+    DateValue = GetISOTimestamp()
+    tbl.ListRows(1).Range(tbl.ListColumns("RFQ calculation start time").Index).value = DateValue
     ' Send to Power Automate
     Call SendToPowerAutomate("RFQ Calculation Started")
 End Sub
@@ -243,9 +283,9 @@ Public Sub BOMRoutingCreated()
     Call ValidateAllComponentsAndProducts
     
     ' Update the status and add the current UTC time
-    tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "BOM&Routing Created"
-    DateValue = Format(Now, "yyyy-mm-dd\Thh:nn:ss") ' Current UTC time
-    tbl.ListRows(1).Range(tbl.ListColumns("RFQ BOM and Routings completion time").Index).Value = DateValue
+    tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "BOM&Routing Created"
+    DateValue = GetISOTimestamp()
+    tbl.ListRows(1).Range(tbl.ListColumns("RFQ BOM and Routings completion time").Index).value = DateValue
 
     ' Send to Power Automate
     Call SendToPowerAutomate("BOM&Routing Created")
@@ -274,17 +314,17 @@ Public Sub StartCustomerClarification(roundNumber As Integer)
     ' Determine the status message and update the "Start" cell based on the round number
     Select Case roundNumber
         Case 1
-            ws.Range("E8").Value = currentTime
+            ws.Range("E8").value = currentTime
             statusMessage = "StartCustomerClarification Round 1"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "StartCustomerClarification Round 1"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "StartCustomerClarification Round 1"
         Case 2
-            ws.Range("E11").Value = currentTime
+            ws.Range("E11").value = currentTime
             statusMessage = "StartCustomerClarification Round 2"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "StartCustomerClarification Round 2"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "StartCustomerClarification Round 2"
         Case 3
-            ws.Range("E14").Value = currentTime
+            ws.Range("E14").value = currentTime
             statusMessage = "StartCustomerClarification Round 3"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "StartCustomerClarification Round 3"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "StartCustomerClarification Round 3"
     End Select
     
     ' Send the status message to Power Automate
@@ -311,17 +351,17 @@ Public Sub EndCustomerClarification(roundNumber As Integer)
     ' Determine the status message and update the "End" cell based on the round number
     Select Case roundNumber
         Case 1
-            ws.Range("G8").Value = currentTime
+            ws.Range("G8").value = currentTime
             statusMessage = "EndCustomerClarification Round 1"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "EndCustomerClarification Round 1"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "EndCustomerClarification Round 1"
         Case 2
-            ws.Range("G11").Value = currentTime
+            ws.Range("G11").value = currentTime
             statusMessage = "EndCustomerClarification Round 2"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "EndCustomerClarification Round 2"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "EndCustomerClarification Round 2"
         Case 3
-            ws.Range("G14").Value = currentTime
+            ws.Range("G14").value = currentTime
             statusMessage = "EndCustomerClarification Round 3"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "EndCustomerClarification Round 3"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "EndCustomerClarification Round 3"
     End Select
     
     ' Send the status message to Power Automate
@@ -372,17 +412,17 @@ Public Sub StartPurchasingClarification(roundNumber As Integer)
     ' Determine the status message and update the "Start" cell based on the round number
     Select Case roundNumber
         Case 1
-            ws.Range("E17").Value = currentTime
+            ws.Range("E17").value = currentTime
             statusMessage = "StartPurchasingClarification Round 1"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "StartPurchasingClarification Round 1"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "StartPurchasingClarification Round 1"
         Case 2
-            ws.Range("E20").Value = currentTime
+            ws.Range("E20").value = currentTime
             statusMessage = "StartPurchasingClarification Round 2"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "StartPurchasingClarification Round 2"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "StartPurchasingClarification Round 2"
         Case 3
-            ws.Range("E23").Value = currentTime
+            ws.Range("E23").value = currentTime
             statusMessage = "StartPurchasingClarification Round 3"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "StartPurchasingClarification Round 3"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "StartPurchasingClarification Round 3"
     End Select
     
     ' Send the status message to Power Automate
@@ -409,17 +449,17 @@ Public Sub EndPurchasingClarification(roundNumber As Integer)
     ' Determine the status message and update the "End" cell based on the round number
     Select Case roundNumber
         Case 1
-            ws.Range("G17").Value = currentTime
+            ws.Range("G17").value = currentTime
             statusMessage = "EndPurchasingClarification Round 1"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "EndPurchasingClarification Round 1"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "EndPurchasingClarification Round 1"
         Case 2
-            ws.Range("G20").Value = currentTime
+            ws.Range("G20").value = currentTime
             statusMessage = "EndPurchasingClarification Round 2"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "EndPurchasingClarification Round 2"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "EndPurchasingClarification Round 2"
         Case 3
-            ws.Range("G23").Value = currentTime
+            ws.Range("G23").value = currentTime
             statusMessage = "EndPurchasingClarification Round 3"
-            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "EndPurchasingClarification Round 3"
+            tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "EndPurchasingClarification Round 3"
     End Select
     
     ' Send the status message to Power Automate
@@ -444,9 +484,9 @@ Public Sub PauseDueToPriorityChange()
     currentTime = Format(Now, "mm/dd/yyyy hh:mm:ss AM/PM")
 
     ' Set timestamp and status message
-    ws.Range("E27").Value = currentTime ' You can change the target cell as needed
+    ws.Range("E27").value = currentTime ' You can change the target cell as needed
     statusMessage = "Paused due to priority change"
-    tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = statusMessage
+    tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = statusMessage
 
     ' Send the status message to Power Automate
     Call SendToPowerAutomate(statusMessage)
@@ -470,9 +510,9 @@ Public Sub ResumeAfterPriorityChange()
     currentTime = Format(Now, "mm/dd/yyyy hh:mm:ss AM/PM")
 
     ' Set timestamp and status message
-    ws.Range("G27").Value = currentTime ' You can change the target cell as needed
+    ws.Range("G27").value = currentTime ' You can change the target cell as needed
     statusMessage = "Resumed after priority change"
-    tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = statusMessage
+    tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = statusMessage
 
     ' Send the status message to Power Automate
     Call SendToPowerAutomate(statusMessage)
@@ -494,7 +534,7 @@ Public Sub RejectRFQ()
     Set AdditionalData = CreateObject("Scripting.Dictionary")
 
     ' Get the rejection reason from cell L4
-    rejectionReason = Trim(wsValidation.Range("L4").Value)
+    rejectionReason = Trim(wsValidation.Range("L4").value)
 
     ' Check if reason is empty
     If rejectionReason = "" Then
@@ -508,10 +548,10 @@ Public Sub RejectRFQ()
     localTimeDisplay = Format(Now, "yyyy-mm-dd hh:mm") ' display time (for G2)
 
     ' Update cell O2 with local time in display format
-    wsValidation.Range("O2").Value = localTimeDisplay
+    wsValidation.Range("O2").value = localTimeDisplay
 
     ' Update status in ProjectData
-    tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).Value = "rejected"
+    tbl.ListRows(1).Range(tbl.ListColumns("Status").Index).value = "rejected"
 
     ' Prepare additional data
     AdditionalData.Add "RejectionReason", rejectionReason
@@ -584,9 +624,9 @@ Public Function BuildCommentsByProduct() As String
                     ws.Cells(ws.Rows.Count, "F").End(xlUp).row)
     
     For r = FIRST_ROW To lastRow
-        cmt = Trim$(CStr(ws.Cells(r, "F").Value))
+        cmt = Trim$(CStr(ws.Cells(r, "F").value))
         If Len(cmt) > 0 Then
-            pn = CStr(ws.Cells(r, "B").Value)
+            pn = CStr(ws.Cells(r, "B").value)
             If buf <> "" Then buf = buf & vbCrLf
             buf = buf & pn & " - " & cmt
         End If
@@ -621,7 +661,7 @@ Public Sub UpdateCommentsByProductInProjectData(Optional ByRef outText As String
     End If
     
     If tbl.ListRows.Count = 0 Then tbl.ListRows.Add
-    tbl.ListRows(1).Range(tbl.ListColumns(colIdx).Index).Value = txt
+    tbl.ListRows(1).Range(tbl.ListColumns(colIdx).Index).value = txt
 End Sub
 
 Public Sub MakeCommentsByProduct()
@@ -649,12 +689,25 @@ Public Sub MakeCommentsByProduct()
     
     If tbl.ListRows.Count = 0 Then tbl.ListRows.Add
     Set Target = tbl.DataBodyRange.Cells(1, colIdx)
-    Target.Value = txt
+    Target.value = txt
     
     ' Bring user to the updated cell
     ws.Activate
     Target.Select
 End Sub
+
+' Add this at the top of your module, after other Private Functions
+Private Function GetISOTimestamp() As String
+    ' Returns ISO 8601 timestamp with colons (not locale-dependent dots/commas)
+    ' Format: 2025-12-08T15:07:22
+    Dim dt As Date
+    dt = Now
+    GetISOTimestamp = Format(dt, "yyyy-mm-dd") & "T" & _
+                      Right("00" & Hour(dt), 2) & ":" & _
+                      Right("00" & Minute(dt), 2) & ":" & _
+                      Right("00" & Second(dt), 2)
+End Function
+
 
 Public Sub SendGeneralStatusUpdate()
     Call SendToPowerAutomate("GeneralStatusUpdate")
