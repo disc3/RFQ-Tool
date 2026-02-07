@@ -31,7 +31,7 @@ Private Sub FixBOMDefinitionDecimalSeparators()
     Set ws = ThisWorkbook.Sheets("1. BOM Definition")
     Set tbl = ws.ListObjects("BOMDefinition")
     
-    columnNames = Array("Quantity", "Price per 1 unit", "Net weight [kg/Base unit]", "Copper weight [kg/1000m]")
+    columnNames = Array("Quantity", "Price per 1 unit", "Price", "Net weight [kg/Base unit]", "Copper weight [kg/1000m]")
     
     For Each name In columnNames
         On Error Resume Next
@@ -142,8 +142,10 @@ Public Sub ApplyRowFormatting(ByVal targetRow As ListRow)
         If Not targetCell.HasFormula Then
             ' Apply formatting rules based on the column name
             Select Case col.name
-                Case "Price per 1 unit"
+                Case "Price per 1 unit", "Price"
                     targetCell.NumberFormat = "0.0000"
+                Case "Price Unit"
+                    targetCell.NumberFormat = "0"
                 Case "Copper weight [kg/1000m]", "Net weight (kg/Base unit)"
                     targetCell.NumberFormat = "0.000"
                 Case "Quantity", "te"

@@ -136,7 +136,8 @@ Private Sub btnAddComponent_Click()
     ' Fill row
     newRow.Range.Cells(1, tblDestination.ListColumns("Base unit of component").Index).Value = Me.txtBaseUnit.Value
     If Me.txtPrice.Value <> "" Then
-        newRow.Range.Cells(1, tblDestination.ListColumns("Price per 1 unit").Index).Value = price
+        newRow.Range.Cells(1, tblDestination.ListColumns("Price").Index).Value = price
+        newRow.Range.Cells(1, tblDestination.ListColumns("Price Unit").Index).Value = 1
     End If
     newRow.Range.Cells(1, tblDestination.ListColumns("Condition Currency").Index).Value = "EUR"
     newRow.Range.Cells(1, tblDestination.ListColumns("Product Number").Index).Value = productNumber

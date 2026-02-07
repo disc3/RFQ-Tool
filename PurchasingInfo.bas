@@ -13,9 +13,9 @@ Sub CopyUnpricedComponentsToPurchasingInput()
 
     application.ScreenUpdating = False
     For Each rowBOM In tblBOM.ListRows
-        ' Check if price is empty or zero
-        If Trim(rowBOM.Range.Columns(tblBOM.ListColumns("Price per 1 unit").Index).Value) = "" _
-           Or rowBOM.Range.Columns(tblBOM.ListColumns("Price per 1 unit").Index).Value = 0 Then
+        ' Check if price is empty or zero (check the "Price" column, which is the source value)
+        If Trim(rowBOM.Range.Columns(tblBOM.ListColumns("Price").Index).Value) = "" _
+           Or rowBOM.Range.Columns(tblBOM.ListColumns("Price").Index).Value = 0 Then
 
             Set rowPI = tblPI.ListRows.Add
             For i = 1 To tblBOM.ListColumns.Count

@@ -116,7 +116,9 @@ Private Function UpdateComponentDetails(targetRow As ListRow) As String
 
     ' --- 3. AUTOMATED LOOKUP AND UPDATE ---
     application.ScreenUpdating = False
-    
+
+    Dim shouldUpdate As Boolean
+
     For Each col In loData.ListColumns
         On Error Resume Next
         bomColIndex = application.Match(col.name, loBom.headerRowRange, 0)
@@ -124,26 +126,90 @@ Private Function UpdateComponentDetails(targetRow As ListRow) As String
 
         If Not IsError(bomColIndex) Then
             Select Case col.name
-                ' Ignore key columns that are manually set or are identifiers
-                Case "Material", "Plant", "Quantity", "Alternate", "Product Number", "MatPlantID", "SearchColumn", "MatSourceID", "LAPP Item"
+                ' Ignore key columns, identifiers, and formula-driven columns
+                Case "Material", "Plant", "Quantity", "Alternate", "Product Number", "MatPlantID", "SearchColumn", "MatSourceID", "LAPP Item", "Price per 1 unit"
                     ' Do nothing
                 Case Else
                     Set targetCell = targetRow.Range(bomColIndex)
-                    
-                    ' Perform the lookup to get the source value
-                    sourceVal = application.WorksheetFunction.XLookup(searchKey, loData.ListColumns("MatPlantID").DataBodyRange, loData.ListColumns(col.name).DataBodyRange, "")
-                    
-                    ' Compare and update only if different
-                    dataUpdated = True
-                    targetCell.Value = sourceVal
+
+                    ' Never overwrite formula cells
+                    If Not targetCell.HasFormula Then
+                        ' Perform the lookup to get the source value
+                        sourceVal = application.WorksheetFunction.XLookup(searchKey, loData.ListColumns("MatPlantID").DataBodyRange, loData.ListColumns(col.name).DataBodyRange, "")
+
+                        shouldUpdate = True
+
+                        ' For purchasing-editable columns, preserve manual edits
+                        If IsProtectedColumn(col.name) Then
+                            destVal = targetCell.Value
+                            If Not IsEmpty(destVal) And CStr(destVal) <> "" Then
+                                If CStr(destVal) <> CStr(sourceVal) Then shouldUpdate = False
+                            End If
+                        End If
+
+                        If shouldUpdate Then
+                            targetCell.Value = sourceVal
+                            dataUpdated = True
+                        End If
+                    End If
             End Select
         End If
     Next col
-    
-    
+
+    ' --- 3b. PRICE COLUMN MAPPING ---
+    ' Source provides "Price per 1 unit". Map it to the new "Price" column.
+    ' "Price per 1 unit" in BOM is now a formula: =[@Price]/[@[Price Unit]]
+    Dim priceColIdx As Long, priceUnitColIdx As Long, ppuColIdx As Long
+    priceColIdx = 0: priceUnitColIdx = 0: ppuColIdx = 0
+
+    On Error Resume Next
+    priceColIdx = loBom.ListColumns("Price").Index
+    priceUnitColIdx = loBom.ListColumns("Price Unit").Index
+    ppuColIdx = loBom.ListColumns("Price per 1 unit").Index
+    On Error GoTo ErrorHandler
+
+    If priceColIdx > 0 And priceUnitColIdx > 0 Then
+        Dim sourcePriceVal As Variant
+        sourcePriceVal = application.WorksheetFunction.XLookup(searchKey, loData.ListColumns("MatPlantID").DataBodyRange, loData.ListColumns("Price per 1 unit").DataBodyRange, "")
+
+        ' Set "Price" (with protection: preserve manual edits)
+        Dim priceCell As Range: Set priceCell = targetRow.Range(priceColIdx)
+        If Not priceCell.HasFormula Then
+            shouldUpdate = True
+            If Not IsEmpty(priceCell.Value) And CStr(priceCell.Value) <> "" Then
+                If CStr(priceCell.Value) <> CStr(sourcePriceVal) Then shouldUpdate = False
+            End If
+            If shouldUpdate And IsNumeric(sourcePriceVal) Then
+                priceCell.Value = sourcePriceVal
+                dataUpdated = True
+            End If
+        End If
+
+        ' Set "Price Unit" to 1 (only if empty - never overwrite manual choice)
+        Dim priceUnitCell As Range: Set priceUnitCell = targetRow.Range(priceUnitColIdx)
+        If Not priceUnitCell.HasFormula Then
+            If IsEmpty(priceUnitCell.Value) Or CStr(priceUnitCell.Value) = "" Then
+                priceUnitCell.Value = 1
+                dataUpdated = True
+            End If
+        End If
+    End If
+
+    ' Set "Price per 1 unit" formula (ensure it exists)
+    If ppuColIdx > 0 And priceColIdx > 0 And priceUnitColIdx > 0 Then
+        Dim ppuRange As Range: Set ppuRange = targetRow.Range(ppuColIdx)
+        ppuRange.NumberFormat = "0.0000"
+        Dim strPPUFormula As String
+        strPPUFormula = "=[@Price]/[@[Price Unit]]"
+        If ppuRange.Formula2 <> strPPUFormula Then
+            ppuRange.Formula2 = strPPUFormula
+            dataUpdated = True
+        End If
+    End If
+
     ' --- 4. APPLY FORMULAS (Logic Update) ---
-    ' Hier setzen wir die Formel für "LAPP Item" explizit.
-    ' Wir prüfen erst, ob die Spalte existiert, um Fehler zu vermeiden.
+    ' Hier setzen wir die Formel fï¿½r "LAPP Item" explizit.
+    ' Wir prï¿½fen erst, ob die Spalte existiert, um Fehler zu vermeiden.
     
     On Error Resume Next
     Dim lappColIndex As Long
@@ -155,14 +221,14 @@ Private Function UpdateComponentDetails(targetRow As ListRow) As String
         Set targetRange = targetRow.Range(lappColIndex)
         
         ' Zuerst das Format auf "Standard" (General) setzen
-        ' Das verhindert, dass die Formel als bloßer Text angezeigt wird.
+        ' Das verhindert, dass die Formel als bloï¿½er Text angezeigt wird.
         targetRange.NumberFormat = "General"
         
         ' Formel definieren (Englische Syntax)
         Dim strFormula As String
         strFormula = "=IF(COUNTIF(LAPPCompanies[Firm], [@[Vendor name]]) > 0, ""Yes"", """")"
         
-        ' Formel nur schreiben, wenn sie sich geändert hat (vermeidet unnötige Neuberechnungen)
+        ' Formel nur schreiben, wenn sie sich geï¿½ndert hat (vermeidet unnï¿½tige Neuberechnungen)
         If targetRange.Formula2 <> strFormula Then
             targetRange.Formula2 = strFormula
             dataUpdated = True
@@ -296,6 +362,21 @@ ErrorHandler:
     Resume CleanExit
 End Sub
 
+'''
+' Checks if a column is editable by purchasing and should be protected from automated overwrites.
+' During RefreshBOMData, values in these columns are preserved if they differ from the source.
+' @param {String} colName The column name to check.
+' @return {Boolean} True if the column should be protected from overwrite.
+'''
+Private Function IsProtectedColumn(ByVal colName As String) As Boolean
+    Select Case colName
+        Case "Copper weight [kg/1000m]", "MOQ", "Planned delivery time", "Price", "Price Unit"
+            IsProtectedColumn = True
+        Case Else
+            IsProtectedColumn = False
+    End Select
+End Function
+
 Private Function StatusSeverity(ByVal s As String) As Long
     Dim u As String
     u = UCase$(Trim$(CStr(s)))
@@ -403,7 +484,7 @@ Public Sub ProcessMassUploadData()
                 ' Fallback (only if helper is missing)
                 Err.Clear
                 Dim wsDest As Worksheet, tblDest As ListObject, newRow As ListRow
-                Dim cMat As Long, cQty As Long, cProd As Long, cPrice As Long
+                Dim cMat As Long, cQty As Long, cProd As Long, cPrice As Long, cPU As Long
                 Set wsDest = ThisWorkbook.Sheets("1. BOM Definition")
                 Set tblDest = wsDest.ListObjects("BOMDefinition")
                 Set newRow = tblDest.ListRows.Add
@@ -411,7 +492,8 @@ Public Sub ProcessMassUploadData()
                 cMat = tblDest.ListColumns("Material").Index
                 cQty = tblDest.ListColumns("Quantity").Index
                 cProd = tblDest.ListColumns("Product Number").Index
-                cPrice = tblDest.ListColumns("Price per 1 unit").Index
+                cPrice = tblDest.ListColumns("Price").Index
+                cPU = tblDest.ListColumns("Price Unit").Index
                 On Error GoTo 0
                 If cProd > 0 Then If Not newRow.Range.Cells(1, cProd).HasFormula Then newRow.Range.Cells(1, cProd).Value = sFinalProduct
                 If cMat > 0 Then If Not newRow.Range.Cells(1, cMat).HasFormula Then newRow.Range.Cells(1, cMat).Value = sCurrentComponent
@@ -421,6 +503,7 @@ Public Sub ProcessMassUploadData()
                         If Not newRow.Range.Cells(1, cPrice).HasFormula Then newRow.Range.Cells(1, cPrice).Value = CDbl(netPriceUnit)
                     End If
                 End If
+                If cPU > 0 Then If Not newRow.Range.Cells(1, cPU).HasFormula Then newRow.Range.Cells(1, cPU).Value = 1
                 If cMat > 0 Then newRow.Range.Cells(1, cMat).Interior.Color = RGB(255, 255, 0)
             End If
             On Error GoTo ErrorHandler
@@ -456,7 +539,7 @@ Public Sub AddPlaceholderComponentToBOM( _
     Dim wsDest As Worksheet
     Dim tblDest As ListObject
     Dim newRow As ListRow
-    Dim cMat As Long, cQty As Long, cProd As Long, cPrice As Long
+    Dim cMat As Long, cQty As Long, cProd As Long, cPrice As Long, cPriceUnit As Long
 
     Set wsDest = ThisWorkbook.Sheets("1. BOM Definition")
     Set tblDest = wsDest.ListObjects("BOMDefinition")
@@ -469,7 +552,8 @@ Public Sub AddPlaceholderComponentToBOM( _
     cMat = tblDest.ListColumns("Material").Index
     cQty = tblDest.ListColumns("Quantity").Index
     cProd = tblDest.ListColumns("Product Number").Index
-    cPrice = tblDest.ListColumns("Price per 1 unit").Index
+    cPrice = tblDest.ListColumns("Price").Index
+    cPriceUnit = tblDest.ListColumns("Price Unit").Index
     On Error GoTo 0
 
     ' Write values only if target cells are not formula cells
@@ -495,7 +579,11 @@ Public Sub AddPlaceholderComponentToBOM( _
         End If
     End If
 
-    ' Highlight the Material cell so it’s easy to spot
+    If cPriceUnit > 0 Then
+        If Not newRow.Range.Cells(1, cPriceUnit).HasFormula Then newRow.Range.Cells(1, cPriceUnit).Value = 1
+    End If
+
+    ' Highlight the Material cell so it is easy to spot
     If cMat > 0 Then newRow.Range.Cells(1, cMat).Interior.Color = RGB(255, 255, 0)
 End Sub
 
