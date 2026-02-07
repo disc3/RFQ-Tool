@@ -282,6 +282,7 @@ Private Sub btnCreateVariant_Click()
         With prodRow.Range(colIndex)
             Select Case tblProducts.ListColumns(colIndex).name
                 Case "Product Number": .Value = variantName
+                Case "Product Description": .Value = variantDesc
                 Case "Variant of": .Value = baseProduct
                 Case Else
                     If Not .HasFormula And Not baseRow Is Nothing Then
