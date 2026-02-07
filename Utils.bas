@@ -150,7 +150,9 @@ Public Sub ApplyRowFormatting(ByVal targetRow As ListRow)
                     ' Use a standard number format for quantity
                     targetCell.NumberFormat = "0.00"
                     
-                Case "tr", "Number of operations", "Number of Setups", "Batch", "AOQ"
+                Case "Number of operations"
+                    targetCell.NumberFormat = "0.##"
+                Case "tr", "Number of Setups", "Batch", "AOQ"
                     ' Leave key identifier columns with their default "General" format
                     targetCell.NumberFormat = "0"
                 Case Else
