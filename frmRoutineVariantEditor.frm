@@ -63,16 +63,25 @@ Private Sub lvwRoutines_DblClick()
         MsgBox "Please select a routine row first.", vbExclamation
         Exit Sub
     End If
-    
+
     Dim userInput As String
+    Dim decimalSeparator As String
+
+    decimalSeparator = application.International(xlDecimalSeparator)
+
     userInput = InputBox("Enter number of operations for " & selectedItem.Text & ":", _
                          "Edit Number of Operations", selectedItem.SubItems(5))
     If userInput = vbNullString Then Exit Sub ' User cancelled
 
-    ' Use the robust TryParse pattern for safe conversion
-    Dim numericValue As Double
-    If TryParseDouble(userInput, numericValue) Then
-        selectedItem.SubItems(5) = CStr(numericValue)
+    ' Convert decimal separator based on system locale (same approach as RoutineForm)
+    If InStr(userInput, ".") > 0 And decimalSeparator <> "." Then
+        userInput = Replace(userInput, ".", decimalSeparator)
+    ElseIf InStr(userInput, ",") > 0 And decimalSeparator <> "," Then
+        userInput = Replace(userInput, ",", decimalSeparator)
+    End If
+
+    If IsNumeric(userInput) Then
+        selectedItem.SubItems(5) = userInput
     Else
         MsgBox "'" & userInput & "' is not a valid number.", vbExclamation
     End If
@@ -326,10 +335,20 @@ Private Function HasFormula(ByVal cellFormula As Variant) As Boolean
 End Function
 
 Private Function TryParseDouble(ByVal Text As String, ByRef result As Double) As Boolean
-    ' Robustly converts a string to a Double, regardless of regional settings for decimals.
+    ' Robustly converts a string to a Double, respecting regional decimal separator settings.
     Dim normalizedText As String
-    normalizedText = Replace(Trim(Text), ",", ".") ' Standardize to period
-    
+    Dim decSep As String
+
+    decSep = application.International(xlDecimalSeparator)
+    normalizedText = Trim(Text)
+
+    ' Normalize to system decimal separator (same approach as SafeCDbl in RoutineForm)
+    If decSep = "." Then
+        normalizedText = Replace(normalizedText, ",", ".")
+    Else
+        normalizedText = Replace(normalizedText, ".", ",")
+    End If
+
     If IsNumeric(normalizedText) Then
         result = CDbl(normalizedText)
         TryParseDouble = True
