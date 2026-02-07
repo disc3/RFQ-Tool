@@ -234,6 +234,13 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
     Dim wsData As Worksheet: Set wsData = ThisWorkbook.Sheets(associatedSheetname)
     Dim tblAssociatedData As ListObject: Set tblAssociatedData = wsData.ListObjects(associatedTableName)
     
+    ' --- ENSURE FORMULAS ARE CALCULATED ---
+    ' When called after adding rows in manual calculation mode (e.g., during variant creation),
+    ' formula columns like ProductNumberText and Helper Format may not yet be evaluated.
+    ' Force a recalculation of the relevant sheets before reading any data.
+    wsProducts.Calculate
+    wsData.Calculate
+
     ' --- CHECK: Is the table "visually" empty? ---
     If tblAssociatedData.DataBodyRange Is Nothing Then GoTo CleanExit
     If tblFinalProducts.DataBodyRange Is Nothing Then GoTo CleanExit
@@ -295,7 +302,7 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
         pKey = CStr(arrSourceProd(i, 1))
         pIndex = arrSourceHelper(i, 1)
         
-        If Not IsEmpty(pIndex) And Not IsError(pIndex) And pKey <> "" Then
+        If Not IsEmpty(pIndex) And Not IsError(pIndex) And pKey <> "" And IsNumeric(pIndex) Then
             If Not dictProdIndex.exists(pKey) Then
                 dictProdIndex.Add pKey, CLng(pIndex)
             End If
