@@ -133,10 +133,14 @@ Private Sub btnAddComponent_Click()
         Set newRow = tblDestination.ListRows.Add(AlwaysInsert:=True)
     End If
 
+    ' Suppress change tracking for programmatic writes
+    ManualOverrides.SuppressChangeTracking = True
+
     ' Fill row
     newRow.Range.Cells(1, tblDestination.ListColumns("Base unit of component").Index).Value = Me.txtBaseUnit.Value
     If Me.txtPrice.Value <> "" Then
-        newRow.Range.Cells(1, tblDestination.ListColumns("Price per 1 unit").Index).Value = price
+        newRow.Range.Cells(1, tblDestination.ListColumns("Price").Index).Value = price
+        newRow.Range.Cells(1, tblDestination.ListColumns("Price Unit").Index).Value = 1
     End If
     newRow.Range.Cells(1, tblDestination.ListColumns("Condition Currency").Index).Value = "EUR"
     newRow.Range.Cells(1, tblDestination.ListColumns("Product Number").Index).Value = productNumber
@@ -170,6 +174,8 @@ Private Sub btnAddComponent_Click()
     If Not foundCell Is Nothing Then
         foundCell.Interior.Color = vbYellow
     End If
+
+    ManualOverrides.SuppressChangeTracking = False
 
     ' Close the form
     Unload Me

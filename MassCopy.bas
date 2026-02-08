@@ -144,6 +144,9 @@ Public Sub ProcessMassUpload()
     decimalSeparator = application.International(xlDecimalSeparator)
     notFoundMaterials = ""
 
+    ' Suppress change tracking for all programmatic writes
+    ManualOverrides.SuppressChangeTracking = True
+
     For Each rw In tblMassUpload.ListRows
         materialNumber = rw.Range(tblMassUpload.ListColumns("Component").Index).Value
         quantity = rw.Range(tblMassUpload.ListColumns("Quantity").Index).Value
@@ -223,7 +226,7 @@ NextRow:
     Next rw
 
     If notFoundMaterials <> "" Then
-        MsgBox "Process completed with placeholders. These components weren’t found in DB and were added to BOM with highlight:" & _
+        MsgBox "Process completed with placeholders. These components werenï¿½t found in DB and were added to BOM with highlight:" & _
                vbCrLf & notFoundMaterials, vbExclamation
         Dbg "Placeholders added for: " & Replace(notFoundMaterials, vbCrLf, ", ")
     Else
@@ -231,6 +234,7 @@ NextRow:
         Dbg "Process completed successfully."
     End If
 
+    ManualOverrides.SuppressChangeTracking = False
     SortSelectedComponentsByProduct
     Call Utils.RunProductBasedFormatting("1. BOM Definition", "BOMDefinition", "Helper Format BOMs")
     Dbg "=== ProcessMassUpload END ==="
@@ -247,6 +251,7 @@ Public Sub CopyRowToDestination(sourceRow As Range, quantity As Double, productN
     Dim newRowMMD As ListRow
     Dim headerCell As Range
     Dim destColIndex As Long
+    Dim destCell As Range
 
     ' Set the source and destination tables
     Set wsDestination = ThisWorkbook.Sheets("1. BOM Definition")
@@ -265,19 +270,37 @@ Public Sub CopyRowToDestination(sourceRow As Range, quantity As Double, productN
 
         ' If a matching column exists in the destination table, copy the data
         If destColIndex > 0 Then
-            newRowMMD.Range.Cells(1, destColIndex).Value = _
-                sourceRow.Cells(1, headerCell.column - tblSource.headerRowRange.column + 1).Value
+            Set destCell = newRowMMD.Range.Cells(1, destColIndex)
+            ' Skip formula cells (e.g. "Price per 1 unit" is now a formula)
+            If Not destCell.HasFormula Then
+                destCell.Value = sourceRow.Cells(1, headerCell.column - tblSource.headerRowRange.column + 1).Value
+            End If
         End If
     Next headerCell
 
-    ' Copy specific fields like Quantity, Product Number, and Price per 1 unit from MassUploadTable to the destination
+    ' Copy specific fields: Quantity, Product Number, Price, Price Unit
     On Error Resume Next
     newRowMMD.Range.Cells(1, tblDestinationMMD.ListColumns("Quantity").Index).Value = quantity
     newRowMMD.Range.Cells(1, tblDestinationMMD.ListColumns("Product Number").Index).Value = productNumber
-    
-    ' Only set Price per 1 unit if it is not empty
+
+    ' Write price to "Price" column (not "Price per 1 unit" which is now a formula)
     If netPriceUnit <> 0 Then
-        newRowMMD.Range.Cells(1, tblDestinationMMD.ListColumns("Price per 1 unit").Index).Value = netPriceUnit
+        Dim priceIdx As Long
+        priceIdx = tblDestinationMMD.ListColumns("Price").Index
+        If priceIdx > 0 Then
+            If Not newRowMMD.Range.Cells(1, priceIdx).HasFormula Then
+                newRowMMD.Range.Cells(1, priceIdx).Value = netPriceUnit
+            End If
+        End If
+    End If
+
+    ' Set Price Unit to 1
+    Dim priceUnitIdx As Long
+    priceUnitIdx = tblDestinationMMD.ListColumns("Price Unit").Index
+    If priceUnitIdx > 0 Then
+        If Not newRowMMD.Range.Cells(1, priceUnitIdx).HasFormula Then
+            newRowMMD.Range.Cells(1, priceUnitIdx).Value = 1
+        End If
     End If
     On Error GoTo 0
 End Sub
@@ -351,7 +374,7 @@ Public Function ShowLoadedDataSelectionForm(matches As Range) As Long
     ' Initialize the form with the matching rows
     LoadedDataSelectionForm.InitializeForm matches
 
-    ' Show the form and wait for the user’s selection
+    ' Show the form and wait for the userï¿½s selection
     LoadedDataSelectionForm.Show
 
     ' Return the selected row index (or -1 if canceled)
@@ -401,6 +424,9 @@ Public Sub ProcessMassUploadSelectedPlant()
 
     decimalSeparator = application.International(xlDecimalSeparator)
     notFoundMaterials = ""
+
+    ' Suppress change tracking for all programmatic writes
+    ManualOverrides.SuppressChangeTracking = True
 
     ' Loop each row in MassUpload
     For Each rowObj In tblMassUpload.ListRows
@@ -468,6 +494,8 @@ Public Sub ProcessMassUploadSelectedPlant()
         End If
 NextRow:
     Next rowObj
+
+    ManualOverrides.SuppressChangeTracking = False
 
     If notFoundMaterials <> "" Then
         MsgBox "Process completed with errors. The following components+plants were not found:" & _
@@ -548,7 +576,7 @@ Public Sub AddPlaceholderComponentToBOM( _
     Dim tblDest As ListObject
     Dim newRow As ListRow
 
-    Dim cMat As Long, cQty As Long, cProd As Long, cPrice As Long
+    Dim cMat As Long, cQty As Long, cProd As Long, cPrice As Long, cPriceUnit As Long
     Dim cProdType As Long, cPlant As Long, cNewComp As Long, cDescr As Long
 
     Dim selectedProdType As Variant
@@ -578,13 +606,14 @@ Public Sub AddPlaceholderComponentToBOM( _
     cPlant = tblDest.ListColumns("Plant").Index
     cMat = tblDest.ListColumns("Material").Index
     cQty = tblDest.ListColumns("Quantity").Index
-    cPrice = tblDest.ListColumns("Price per 1 unit").Index
+    cPrice = tblDest.ListColumns("Price").Index
+    cPriceUnit = tblDest.ListColumns("Price Unit").Index
     cNewComp = tblDest.ListColumns("New component").Index
     cDescr = tblDest.ListColumns("Material Description").Index
     On Error GoTo 0
 
     Dbg "  ColIdx: Prod=" & cProd & ", ProdType=" & cProdType & ", Plant=" & cPlant & _
-        ", Material=" & cMat & ", Qty=" & cQty & ", Price=" & cPrice & ", NewComp=" & cNewComp & ", Descr=" & cDescr
+        ", Material=" & cMat & ", Qty=" & cQty & ", Price=" & cPrice & ", PriceUnit=" & cPriceUnit & ", NewComp=" & cNewComp & ", Descr=" & cDescr
 
     ' Values
     If cProd > 0 Then newRow.Range.Cells(1, cProd).Value = productNumber
@@ -617,9 +646,14 @@ Public Sub AddPlaceholderComponentToBOM( _
     If cPrice > 0 Then
         If Not IsMissing(netPriceUnit) Then
             If IsNumeric(netPriceUnit) And CDbl(netPriceUnit) <> 0 Then
-                newRow.Range.Cells(1, cPrice).Value = CDbl(netPriceUnit)
+                If Not newRow.Range.Cells(1, cPrice).HasFormula Then
+                    newRow.Range.Cells(1, cPrice).Value = CDbl(netPriceUnit)
+                End If
             End If
         End If
+    End If
+    If cPriceUnit > 0 Then
+        If Not newRow.Range.Cells(1, cPriceUnit).HasFormula Then newRow.Range.Cells(1, cPriceUnit).Value = 1
     End If
 
     ' Read back confirm

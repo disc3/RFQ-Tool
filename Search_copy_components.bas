@@ -75,21 +75,24 @@ End Function
 '''
 ' Updates the details of a given BOM row by looking up data in the LoadedData table.
 ' @param {ListRow} targetRow The ListRow object in the BOMDefinition table to be updated.
+' @param {Object} [overridesDict=Nothing] Optional Dictionary of manual overrides.
+'        If provided, protected columns with recorded overrides are skipped.
 ' @return {String} A status string: "Updated", "NotFound", or "NoChange".
 '''
-Private Function UpdateComponentDetails(targetRow As ListRow) As String
+Private Function UpdateComponentDetails(targetRow As ListRow, Optional overridesDict As Object = Nothing) As String
     Dim wsBom As Worksheet, wsData As Worksheet
     Dim loBom As ListObject, loData As ListObject
     Dim col As ListColumn, targetCell As Range
     Dim bomColIndex As Variant, sourceVal As Variant, destVal As Variant
     Dim partNumber As String, plant As String, searchKey As String
     Dim dataUpdated As Boolean, dataFound As Boolean
-    
+    Dim overrideKey As String
+
     dataUpdated = False
     dataFound = False
 
     On Error GoTo ErrorHandler
-    
+
     ' --- 1. SETUP ---
     Set wsBom = ThisWorkbook.Sheets(BOM_SHEET_NAME)
     Set loBom = wsBom.ListObjects(BOM_TABLE_NAME)
@@ -101,11 +104,11 @@ Private Function UpdateComponentDetails(targetRow As ListRow) As String
         UpdateComponentDetails = "NoChange" ' Prevent further errors
         Exit Function
     End If
-    
+
     partNumber = targetRow.Range(loBom.ListColumns("Material").Index).Value
     plant = targetRow.Range(loBom.ListColumns("Plant").Index).Value
     searchKey = partNumber & " " & plant
-    
+
     ' --- 2. VERIFY a match exists before proceeding ---
     If application.WorksheetFunction.CountIf(loData.ListColumns("MatPlantID").DataBodyRange, searchKey) > 0 Then
         dataFound = True
@@ -116,7 +119,7 @@ Private Function UpdateComponentDetails(targetRow As ListRow) As String
 
     ' --- 3. AUTOMATED LOOKUP AND UPDATE ---
     application.ScreenUpdating = False
-    
+
     For Each col In loData.ListColumns
         On Error Resume Next
         bomColIndex = application.Match(col.name, loBom.headerRowRange, 0)
@@ -125,50 +128,114 @@ Private Function UpdateComponentDetails(targetRow As ListRow) As String
         If Not IsError(bomColIndex) Then
             Select Case col.name
                 ' Ignore key columns that are manually set or are identifiers
-                Case "Material", "Plant", "Quantity", "Alternate", "Product Number", "MatPlantID", "SearchColumn", "MatSourceID", "LAPP Item"
+                Case "Material", "Plant", "Quantity", "Alternate", "Product Number", _
+                     "MatPlantID", "SearchColumn", "MatSourceID", "LAPP Item"
                     ' Do nothing
+
+                ' Skip "Price per 1 unit" - it is now a formula column (=[@Price]/[@[Price Unit]])
+                Case "Price per 1 unit"
+                    ' Do nothing - handled by Price mapping below
+
                 Case Else
                     Set targetCell = targetRow.Range(bomColIndex)
-                    
+
+                    ' Skip formula cells
+                    If targetCell.HasFormula Then GoTo NextCol
+
+                    ' Check if this column has a manual override that should be preserved
+                    If Not overridesDict Is Nothing Then
+                        If ManualOverrides.IsProtectedColumn(col.name) Then
+                            overrideKey = partNumber & "|" & plant & "|" & col.name
+                            If overridesDict.exists(overrideKey) Then
+                                ' Override exists - skip this cell to preserve manual edit
+                                GoTo NextCol
+                            End If
+                        End If
+                    End If
+
                     ' Perform the lookup to get the source value
-                    sourceVal = application.WorksheetFunction.XLookup(searchKey, loData.ListColumns("MatPlantID").DataBodyRange, loData.ListColumns(col.name).DataBodyRange, "")
-                    
-                    ' Compare and update only if different
+                    sourceVal = application.WorksheetFunction.XLookup(searchKey, _
+                        loData.ListColumns("MatPlantID").DataBodyRange, _
+                        loData.ListColumns(col.name).DataBodyRange, "")
+
+                    ' Update the cell
                     dataUpdated = True
                     targetCell.Value = sourceVal
             End Select
         End If
+NextCol:
     Next col
-    
-    
+
+    ' --- 3b. PRICE MAPPING ---
+    ' Source has "Price per 1 unit" -> map to BOM "Price" column, set "Price Unit" = 1
+    Dim srcPriceVal As Variant
+    On Error Resume Next
+    srcPriceVal = application.WorksheetFunction.XLookup(searchKey, _
+        loData.ListColumns("MatPlantID").DataBodyRange, _
+        loData.ListColumns("Price per 1 unit").DataBodyRange, "")
+    On Error GoTo ErrorHandler
+
+    ' Write to "Price" column (if not overridden)
+    Dim priceColIdx As Long, priceUnitColIdx As Long
+    priceColIdx = 0
+    priceUnitColIdx = 0
+    On Error Resume Next
+    priceColIdx = loBom.ListColumns("Price").Index
+    priceUnitColIdx = loBom.ListColumns("Price Unit").Index
+    On Error GoTo ErrorHandler
+
+    If priceColIdx > 0 Then
+        Set targetCell = targetRow.Range(priceColIdx)
+        If Not targetCell.HasFormula Then
+            Dim skipPrice As Boolean: skipPrice = False
+            If Not overridesDict Is Nothing Then
+                overrideKey = partNumber & "|" & plant & "|Price"
+                If overridesDict.exists(overrideKey) Then skipPrice = True
+            End If
+            If Not skipPrice Then
+                targetCell.Value = srcPriceVal
+                dataUpdated = True
+            End If
+        End If
+    End If
+
+    ' Write "Price Unit" = 1 (if not overridden)
+    If priceUnitColIdx > 0 Then
+        Set targetCell = targetRow.Range(priceUnitColIdx)
+        If Not targetCell.HasFormula Then
+            Dim skipPriceUnit As Boolean: skipPriceUnit = False
+            If Not overridesDict Is Nothing Then
+                overrideKey = partNumber & "|" & plant & "|Price Unit"
+                If overridesDict.exists(overrideKey) Then skipPriceUnit = True
+            End If
+            If Not skipPriceUnit Then
+                targetCell.Value = 1
+                dataUpdated = True
+            End If
+        End If
+    End If
+
     ' --- 4. APPLY FORMULAS (Logic Update) ---
-    ' Hier setzen wir die Formel für "LAPP Item" explizit.
-    ' Wir prüfen erst, ob die Spalte existiert, um Fehler zu vermeiden.
-    
     On Error Resume Next
     Dim lappColIndex As Long
     lappColIndex = loBom.ListColumns("LAPP Item").Index
     On Error GoTo ErrorHandler
-    
+
     If lappColIndex > 0 Then
         Dim targetRange As Range
         Set targetRange = targetRow.Range(lappColIndex)
-        
-        ' Zuerst das Format auf "Standard" (General) setzen
-        ' Das verhindert, dass die Formel als bloßer Text angezeigt wird.
+
         targetRange.NumberFormat = "General"
-        
-        ' Formel definieren (Englische Syntax)
+
         Dim strFormula As String
         strFormula = "=IF(COUNTIF(LAPPCompanies[Firm], [@[Vendor name]]) > 0, ""Yes"", """")"
-        
-        ' Formel nur schreiben, wenn sie sich geändert hat (vermeidet unnötige Neuberechnungen)
+
         If targetRange.Formula2 <> strFormula Then
             targetRange.Formula2 = strFormula
             dataUpdated = True
         End If
     End If
-    
+
     Utils.ApplyRowFormatting targetRow
     ' --- 5. RETURN STATUS ---
     If dataUpdated Then
@@ -176,7 +243,7 @@ Private Function UpdateComponentDetails(targetRow As ListRow) As String
     Else
         UpdateComponentDetails = "NoChange"
     End If
-    
+
     application.ScreenUpdating = True
     Exit Function
 
@@ -196,20 +263,22 @@ End Function
 '''
 Public Sub AddFullComponent(partNumber As String, ByVal plant As String, quantity As Double, alternateInfo As String, Optional EndMaterialPn As String = "Missing")
     Dim newRow As ListRow
-    
+
     ' Step 1: Insert the new row with basic metadata
+    ManualOverrides.SuppressChangeTracking = True
     If EndMaterialPn = "Missing" Then
         Set newRow = InsertComponentRow(partNumber, plant, quantity, alternateInfo)
     Else
         Set newRow = InsertComponentRow(partNumber, plant, quantity, alternateInfo, EndMaterialPn)
     End If
-    
+
     ' Step 2: If the row was created successfully, update it with details from the data source
     If Not newRow Is Nothing Then
         application.StatusBar = "Updating details for " & partNumber & "..."
         Call UpdateComponentDetails(newRow)
         application.StatusBar = False
     End If
+    ManualOverrides.SuppressChangeTracking = False
 End Sub
 
 
@@ -231,6 +300,7 @@ Public Sub RefreshBOMData()
     Dim updateStatus As String
     Dim updatedCount As Long, notFoundCount As Long
     Dim materialCell As Range
+    Dim dict As Object
 
     On Error GoTo ErrorHandler
 
@@ -254,6 +324,12 @@ Public Sub RefreshBOMData()
     updatedCount = 0
     notFoundCount = 0
 
+    ' Load manual overrides dictionary for protected column checking
+    Set dict = ManualOverrides.LoadOverridesDict()
+
+    ' Suppress change tracking for all programmatic writes
+    ManualOverrides.SuppressChangeTracking = True
+
     ' Loop through each row in the BOMDefinition table
     For Each currentRow In loBom.ListRows
         Set materialCell = currentRow.Range.Cells(1, loBom.ListColumns("Material").Index)
@@ -263,8 +339,8 @@ Public Sub RefreshBOMData()
         If Not UCase(material) Like "NEW*" And material <> "" Then
             application.StatusBar = "Checking: " & material
 
-            ' Call the update function and get the status
-            updateStatus = UpdateComponentDetails(currentRow)
+            ' Call the update function with overrides dict
+            updateStatus = UpdateComponentDetails(currentRow, dict)
             If Len(Trim$(updateStatus)) = 0 Then updateStatus = "NoChange"
 
             ' Apply color-coding to only the Material cell
@@ -286,6 +362,7 @@ Public Sub RefreshBOMData()
            "Rows Not Found: " & notFoundCount, vbInformation, "Refresh Complete"
     Call Utils.RunProductBasedFormatting(BOM_SHEET_NAME, BOM_TABLE_NAME, "Helper Format BOMs")
 CleanExit:
+    ManualOverrides.SuppressChangeTracking = False
     application.StatusBar = False
     application.ScreenUpdating = True
     application.Calculation = xlCalculationAutomatic
@@ -346,6 +423,9 @@ Public Sub ProcessMassUploadData()
     sPlantGlobal = wsGlobal.Range("B3").Value
     sSourceGlobal = wsGlobal.Range("B2").Value
     notFoundList = ""
+
+    ' Suppress change tracking for all programmatic writes
+    ManualOverrides.SuppressChangeTracking = True
 
     ' --- Loop through each row of the MassUploadTable ---
     For Each rComponentCell In loMassUpload.ListColumns("Component").DataBodyRange.Cells
@@ -411,7 +491,9 @@ Public Sub ProcessMassUploadData()
                 cMat = tblDest.ListColumns("Material").Index
                 cQty = tblDest.ListColumns("Quantity").Index
                 cProd = tblDest.ListColumns("Product Number").Index
-                cPrice = tblDest.ListColumns("Price per 1 unit").Index
+                cPrice = tblDest.ListColumns("Price").Index
+                Dim cPU As Long
+                cPU = tblDest.ListColumns("Price Unit").Index
                 On Error GoTo 0
                 If cProd > 0 Then If Not newRow.Range.Cells(1, cProd).HasFormula Then newRow.Range.Cells(1, cProd).Value = sFinalProduct
                 If cMat > 0 Then If Not newRow.Range.Cells(1, cMat).HasFormula Then newRow.Range.Cells(1, cMat).Value = sCurrentComponent
@@ -421,6 +503,7 @@ Public Sub ProcessMassUploadData()
                         If Not newRow.Range.Cells(1, cPrice).HasFormula Then newRow.Range.Cells(1, cPrice).Value = CDbl(netPriceUnit)
                     End If
                 End If
+                If cPU > 0 Then If Not newRow.Range.Cells(1, cPU).HasFormula Then newRow.Range.Cells(1, cPU).Value = 1
                 If cMat > 0 Then newRow.Range.Cells(1, cMat).Interior.Color = RGB(255, 255, 0)
             End If
             On Error GoTo ErrorHandler
@@ -439,6 +522,7 @@ NextRow:
     ThisWorkbook.Sheets(BOM_SHEET_NAME).Activate
     SortSelectedComponentsByProduct
 CleanExit:
+    ManualOverrides.SuppressChangeTracking = False
     application.ScreenUpdating = True
     Exit Sub
 
@@ -456,7 +540,7 @@ Public Sub AddPlaceholderComponentToBOM( _
     Dim wsDest As Worksheet
     Dim tblDest As ListObject
     Dim newRow As ListRow
-    Dim cMat As Long, cQty As Long, cProd As Long, cPrice As Long
+    Dim cMat As Long, cQty As Long, cProd As Long, cPrice As Long, cPriceUnit As Long
 
     Set wsDest = ThisWorkbook.Sheets("1. BOM Definition")
     Set tblDest = wsDest.ListObjects("BOMDefinition")
@@ -469,7 +553,8 @@ Public Sub AddPlaceholderComponentToBOM( _
     cMat = tblDest.ListColumns("Material").Index
     cQty = tblDest.ListColumns("Quantity").Index
     cProd = tblDest.ListColumns("Product Number").Index
-    cPrice = tblDest.ListColumns("Price per 1 unit").Index
+    cPrice = tblDest.ListColumns("Price").Index
+    cPriceUnit = tblDest.ListColumns("Price Unit").Index
     On Error GoTo 0
 
     ' Write values only if target cells are not formula cells
@@ -495,7 +580,12 @@ Public Sub AddPlaceholderComponentToBOM( _
         End If
     End If
 
-    ' Highlight the Material cell so it’s easy to spot
+    ' Set Price Unit to 1
+    If cPriceUnit > 0 Then
+        If Not newRow.Range.Cells(1, cPriceUnit).HasFormula Then newRow.Range.Cells(1, cPriceUnit).Value = 1
+    End If
+
+    ' Highlight the Material cell so it's easy to spot
     If cMat > 0 Then newRow.Range.Cells(1, cMat).Interior.Color = RGB(255, 255, 0)
 End Sub
 
