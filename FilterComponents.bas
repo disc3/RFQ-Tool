@@ -1,24 +1,30 @@
 Attribute VB_Name = "FilterComponents"
 Option Explicit
 
-' --- KONSTANTEN FÜR DIE FILTERFUNKTION ---
+' --- KONSTANTEN Fï¿½R DIE FILTERFUNKTION ---
 Private Const LIST_OBJECT_NAME As String = "LoadedData"
 Private Const SEARCH_COLUMN_NAME As String = "SearchColumn"
 Private Const SOURCE_SHEET_NAME As String = "Purchasing Info Records"
 Private Const PLANT_DATA_COLUMN_NAME As String = "Source"
 
+' --- CONSTANTS FOR PREFERENTIAL ALTERNATIVES ---
+Private Const ALT_SHEET_NAME As String = "Material Alternatives"
+Private Const ALT_TABLE_NAME As String = "AlternativeMaterials"
+Private Const ALT_SOURCE_COL As String = "SourceMaterial"
+Private Const ALT_TARGET_COL As String = "AlternativeMaterial"
+
 '##################################################################################
 '# NAME:          GetFilteredData
 '# ZWECK:         Filtert Daten aus einer Tabelle basierend auf einem Suchbegriff
-'#                und einer Werksauswahl und gibt die Ergebnisse als Collection zurück.
+'#                und einer Werksauswahl und gibt die Ergebnisse als Collection zurï¿½ck.
 '# PARAMETER:
-'#   userInput:     Der Suchbegriff des Benutzers. Wildcard * wird unterstützt.
-'#   plantsToInclude: Eine Collection mit den Werksnamen, die berücksichtigt werden sollen.
+'#   userInput:     Der Suchbegriff des Benutzers. Wildcard * wird unterstï¿½tzt.
+'#   plantsToInclude: Eine Collection mit den Werksnamen, die berï¿½cksichtigt werden sollen.
 '#                    Wenn die Collection leer ist, werden alle Werke durchsucht.
-'# RÜCKGABE:      Eine Collection, bei der jedes Element ein Array
+'# Rï¿½CKGABE:      Eine Collection, bei der jedes Element ein Array
 '#                (eine Ergebniszeile) ist.
 '##################################################################################
-Function GetFilteredData(userInput As String, plantsToInclude As Collection, searchColumnName As String) As Collection
+Function GetFilteredData(userInput As String, plantsToInclude As Collection, searchColumnName As String, Optional ByRef outIsAlternative As Collection = Nothing) As Collection
     Dim lo As ListObject
     Dim sourceSheet As Worksheet
     Dim searchColumnObj As ListColumn
@@ -54,10 +60,10 @@ Function GetFilteredData(userInput As String, plantsToInclude As Collection, sea
         ' Leise beenden, die UserForm kann eine Nachricht anzeigen
         Exit Function
     End If
-    
+
     ' --- 2. Spaltenindizes bestimmen ---
     numSourceColumns = lo.ListColumns.Count
-    
+
     On Error Resume Next
     Set searchColumnObj = lo.ListColumns(SEARCH_COLUMN_NAME)
     If searchColumnObj Is Nothing Then
@@ -65,11 +71,15 @@ Function GetFilteredData(userInput As String, plantsToInclude As Collection, sea
         Exit Function
     End If
     searchColumnIndex = searchColumnObj.Index
-    
+
     ' Index der Werksspalte finden
     plantColumnIndex = 0
     plantColumnIndex = lo.ListColumns(searchColumnName).Index
-    On Error GoTo 0 ' Fehlerbehandlung zurücksetzen
+    On Error GoTo 0 ' Fehlerbehandlung zurï¿½cksetzen
+
+    ' Material column index for alternative lookups
+    Dim materialColumnIndex As Long
+    materialColumnIndex = lo.ListColumns("Material").Index
 
     ' --- 3. Filter-Setup ---
     Set results = New Collection
@@ -84,8 +94,29 @@ Function GetFilteredData(userInput As String, plantsToInclude As Collection, sea
         .IgnoreCase = True
     End With
 
-    ' Daten in ein Array laden für maximale Geschwindigkeit
+    ' Daten in ein Array laden fï¿½r maximale Geschwindigkeit
     dataArr = lo.DataBodyRange.Value2
+
+    ' --- 3b. Alternatives Setup (only if mapping table exists and search is not empty) ---
+    Dim altDict As Object
+    Dim matIndexDict As Object
+    Dim useAlternatives As Boolean
+    Dim addedKeys As Object
+    Dim matchedMaterials As Object
+
+    useAlternatives = False
+    If Trim(userInput) <> "" Then
+        Set altDict = LoadAlternativesDict()
+        If Not altDict Is Nothing Then
+            useAlternatives = True
+            Set matIndexDict = BuildMaterialRowIndex(dataArr, materialColumnIndex)
+            Set outIsAlternative = New Collection
+            Set addedKeys = CreateObject("Scripting.Dictionary")
+            addedKeys.CompareMode = vbTextCompare
+            Set matchedMaterials = CreateObject("Scripting.Dictionary")
+            matchedMaterials.CompareMode = vbTextCompare
+        End If
+    End If
 
     ' --- 4. Daten filtern ---
     Dim currentCellData As Variant
@@ -94,7 +125,7 @@ Function GetFilteredData(userInput As String, plantsToInclude As Collection, sea
     Dim plantMatch As Boolean
 
     For i = 1 To UBound(dataArr, 1) ' Zeilen durchlaufen
-        
+
         ' --- Werks-Vorfilterung anwenden ---
         If preFilterActive Then
             plantMatch = False
@@ -106,8 +137,8 @@ Function GetFilteredData(userInput As String, plantsToInclude As Collection, sea
                     Exit For ' Werk gefunden, innere Schleife verlassen
                 End If
             Next plantToCompare
-            
-            If Not plantMatch Then GoTo NextRow ' Wenn Werk nicht passt, nächste Zeile
+
+            If Not plantMatch Then GoTo NextRow ' Wenn Werk nicht passt, nï¿½chste Zeile
         End If
 
         ' --- Haupt-Filterung mit Regex anwenden ---
@@ -121,44 +152,213 @@ Function GetFilteredData(userInput As String, plantsToInclude As Collection, sea
         End If
 
         If regex.Test(stringToTest) Then
-            ' Ganze Zeile zum Ergebnis hinzufügen (ohne "SearchColumn")
-            ReDim tempRowValues(1 To numSourceColumns - 1)
-            Dim outputColIdx As Long
-            outputColIdx = 0
-            
-            For c = 1 To numSourceColumns
-                ' Die Suchspalte wird nicht in die Ausgabe übernommen
-                If c <> searchColumnIndex Then
-                    outputColIdx = outputColIdx + 1
-                    Dim valueToWrite As Variant
-                    valueToWrite = dataArr(i, c)
-                    
-                    ' Schutz vor Excel-Formel-Interpretation
-                    If VarType(valueToWrite) = vbString And Len(valueToWrite) > 0 Then
-                        If Left(valueToWrite, 1) = "=" Or Left(valueToWrite, 1) = "+" Or Left(valueToWrite, 1) = "-" Or Left(valueToWrite, 1) = "@" Then
-                            tempRowValues(outputColIdx) = "'" & valueToWrite
-                        Else
-                            tempRowValues(outputColIdx) = valueToWrite
-                        End If
-                    Else
-                        tempRowValues(outputColIdx) = valueToWrite
-                    End If
+            results.Add BuildOutputRow(dataArr, i, numSourceColumns, searchColumnIndex)
+
+            ' Track for alternative resolution
+            If useAlternatives Then
+                outIsAlternative.Add False ' Direct match, not an alternative
+
+                Dim matVal As String
+                matVal = LCase(Trim(CStr(dataArr(i, materialColumnIndex))))
+
+                ' Track Material+Plant for deduplication
+                Dim dedupKey As String
+                If plantColumnIndex > 0 Then
+                    dedupKey = matVal & "|" & LCase(Trim(CStr(dataArr(i, plantColumnIndex))))
+                Else
+                    dedupKey = matVal & "|"
                 End If
-            Next c
-            results.Add tempRowValues
+                If Not addedKeys.Exists(dedupKey) Then addedKeys.Add dedupKey, True
+
+                ' Track unique materials for post-loop alternative lookup
+                If Not matchedMaterials.Exists(matVal) Then matchedMaterials.Add matVal, True
+            End If
         End If
-        
+
 NextRow:
     Next i
 
-    ' --- 5. Aufräumen und Ergebnisse zurückgeben ---
-    Set GetFilteredData = results ' Das Collection-Objekt wird zurückgegeben
+    ' --- 4b. Post-loop: Resolve alternatives for matched materials ---
+    If useAlternatives And matchedMaterials.Count > 0 Then
+        Dim matKey As Variant
+        Dim altMaterials As Collection
+        Dim altMat As Variant
+        Dim altRowIndices As Collection
+        Dim altRowIdx As Variant
+        Dim altPlantMatch As Boolean
+        Dim altPlantInRow As String
+        Dim altDedupKey As String
+        Dim altPlantToCompare As Variant
+
+        For Each matKey In matchedMaterials.Keys
+            If altDict.Exists(CStr(matKey)) Then
+                Set altMaterials = altDict(CStr(matKey))
+
+                For Each altMat In altMaterials
+                    If matIndexDict.Exists(LCase(CStr(altMat))) Then
+                        Set altRowIndices = matIndexDict(LCase(CStr(altMat)))
+
+                        For Each altRowIdx In altRowIndices
+                            ' Apply plant pre-filter
+                            If preFilterActive Then
+                                altPlantMatch = False
+                                altPlantInRow = Trim(CStr(dataArr(CLng(altRowIdx), plantColumnIndex)))
+                                For Each altPlantToCompare In plantsToInclude
+                                    If LCase(altPlantInRow) = LCase(CStr(altPlantToCompare)) Then
+                                        altPlantMatch = True
+                                        Exit For
+                                    End If
+                                Next altPlantToCompare
+                                If Not altPlantMatch Then GoTo NextAltRow
+                            End If
+
+                            ' Deduplication: skip if this Material+Plant is already in results
+                            altDedupKey = LCase(Trim(CStr(dataArr(CLng(altRowIdx), materialColumnIndex)))) & "|"
+                            If plantColumnIndex > 0 Then
+                                altDedupKey = altDedupKey & LCase(Trim(CStr(dataArr(CLng(altRowIdx), plantColumnIndex))))
+                            End If
+                            If addedKeys.Exists(altDedupKey) Then GoTo NextAltRow
+                            addedKeys.Add altDedupKey, True
+
+                            ' Build output row and add as alternative
+                            results.Add BuildOutputRow(dataArr, CLng(altRowIdx), numSourceColumns, searchColumnIndex)
+                            outIsAlternative.Add True ' Mark as alternative
+
+NextAltRow:
+                        Next altRowIdx
+                    End If
+                Next altMat
+            End If
+        Next matKey
+    End If
+
+    ' --- 5. Aufrï¿½umen und Ergebnisse zurï¿½ckgeben ---
+    Set GetFilteredData = results ' Das Collection-Objekt wird zurï¿½ckgegeben
 
     Set regex = Nothing
     Set lo = Nothing
     Set searchColumnObj = Nothing
     Set sourceSheet = Nothing
+    Set altDict = Nothing
+    Set matIndexDict = Nothing
+    Set addedKeys = Nothing
+    Set matchedMaterials = Nothing
     application.ScreenUpdating = True
+End Function
+
+'----------------------------------------------------------------------------------
+' HELPER: Loads the AlternativeMaterials mapping table into a Dictionary.
+' Returns Nothing if the table does not exist or is empty (feature disabled).
+' Key: LCase(SourceMaterial), Value: Collection of AlternativeMaterial strings.
+'----------------------------------------------------------------------------------
+Private Function LoadAlternativesDict() As Object
+    Dim ws As Worksheet
+    Dim lo As ListObject
+    Dim dict As Object
+    Dim altArr As Variant
+    Dim i As Long
+    Dim srcKey As String, altVal As String
+    Dim srcColIdx As Long, altColIdx As Long
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets(ALT_SHEET_NAME)
+    If ws Is Nothing Then
+        Set LoadAlternativesDict = Nothing
+        Exit Function
+    End If
+    Set lo = ws.ListObjects(ALT_TABLE_NAME)
+    If lo Is Nothing Then
+        Set LoadAlternativesDict = Nothing
+        Exit Function
+    End If
+    On Error GoTo 0
+
+    If lo.ListRows.Count = 0 Or lo.DataBodyRange Is Nothing Then
+        Set LoadAlternativesDict = Nothing
+        Exit Function
+    End If
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    dict.CompareMode = vbTextCompare ' Case-insensitive keys
+
+    srcColIdx = lo.ListColumns(ALT_SOURCE_COL).Index
+    altColIdx = lo.ListColumns(ALT_TARGET_COL).Index
+    altArr = lo.DataBodyRange.Value2
+
+    For i = 1 To UBound(altArr, 1)
+        srcKey = Trim(CStr(altArr(i, srcColIdx)))
+        altVal = Trim(CStr(altArr(i, altColIdx)))
+
+        If srcKey <> "" And altVal <> "" Then
+            If Not dict.Exists(srcKey) Then
+                dict.Add srcKey, New Collection
+            End If
+            dict(srcKey).Add altVal
+        End If
+    Next i
+
+    If dict.Count = 0 Then
+        Set LoadAlternativesDict = Nothing
+    Else
+        Set LoadAlternativesDict = dict
+    End If
+End Function
+
+'----------------------------------------------------------------------------------
+' HELPER: Builds a Dictionary mapping LCase(Material) -> Collection of row indices
+' in the data array. Single O(N) pass for fast alternative row lookups.
+'----------------------------------------------------------------------------------
+Private Function BuildMaterialRowIndex(dataArr As Variant, materialColIdx As Long) As Object
+    Dim dict As Object
+    Dim i As Long
+    Dim matKey As String
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    dict.CompareMode = vbTextCompare
+
+    For i = 1 To UBound(dataArr, 1)
+        matKey = Trim(CStr(dataArr(i, materialColIdx)))
+        If matKey <> "" Then
+            If Not dict.Exists(matKey) Then
+                dict.Add matKey, New Collection
+            End If
+            dict(matKey).Add i
+        End If
+    Next i
+
+    Set BuildMaterialRowIndex = dict
+End Function
+
+'----------------------------------------------------------------------------------
+' HELPER: Builds a 1D output array for a single row, excluding the SearchColumn.
+' Protects against Excel formula injection.
+'----------------------------------------------------------------------------------
+Private Function BuildOutputRow(dataArr As Variant, rowIndex As Long, numSourceColumns As Long, searchColumnIndex As Long) As Variant
+    Dim tempRowValues As Variant
+    Dim outputColIdx As Long
+    Dim c As Long
+    Dim valueToWrite As Variant
+
+    ReDim tempRowValues(1 To numSourceColumns - 1)
+    outputColIdx = 0
+
+    For c = 1 To numSourceColumns
+        If c <> searchColumnIndex Then
+            outputColIdx = outputColIdx + 1
+            valueToWrite = dataArr(rowIndex, c)
+            If VarType(valueToWrite) = vbString And Len(valueToWrite) > 0 Then
+                If Left(valueToWrite, 1) = "=" Or Left(valueToWrite, 1) = "+" Or Left(valueToWrite, 1) = "-" Or Left(valueToWrite, 1) = "@" Then
+                    tempRowValues(outputColIdx) = "'" & valueToWrite
+                Else
+                    tempRowValues(outputColIdx) = valueToWrite
+                End If
+            Else
+                tempRowValues(outputColIdx) = valueToWrite
+            End If
+        End If
+    Next c
+
+    BuildOutputRow = tempRowValues
 End Function
 
 '----------------------------------------------------------------------------------
@@ -192,7 +392,7 @@ End Function
 ' HELPER: Stellt sicher, dass die Quelltabelle aktuell ist
 '----------------------------------------------------------------------------------
 Public Sub LoadDatabase(Optional showMessageInStatusBar As Boolean = False)
-    ' Deaktiviert AutoSave, um Popups während der Aktualisierung zu vermeiden
+    ' Deaktiviert AutoSave, um Popups wï¿½hrend der Aktualisierung zu vermeiden
     Dim wsSource As Worksheet
     Dim tbl As ListObject
     ' Set the worksheet and table
@@ -222,7 +422,7 @@ Public Sub LoadDatabase(Optional showMessageInStatusBar As Boolean = False)
 End Sub
 
 '----------------------------------------------------------------------------------
-' HELPER: Verwaltet die AutoSave-Einstellung für Cloud-Dateien
+' HELPER: Verwaltet die AutoSave-Einstellung fï¿½r Cloud-Dateien
 '----------------------------------------------------------------------------------
 Public Sub SetCloudAutoSave(enableAutoSave As Boolean)
     On Error Resume Next ' Falls nicht in der Cloud gespeichert
