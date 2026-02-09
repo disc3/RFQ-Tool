@@ -21,6 +21,10 @@ Dim originalRowIndices() As Long
 Private sortColumnIndex As Long
 Private sortAscending As Boolean
 
+' --- Preferential Highlighting ---
+Private Const ALT_FORECOLOR As Long = 32768 ' Dark green RGB(0,128,0)
+Private m_alternativeFlags As Collection
+
 Const THIS_PLANT = "This plant"
 Const THIS_COMPANY = "This company (all plants)"
 Const COMPANY_TP_LIST = "This company and Transfer Price List"
@@ -151,21 +155,55 @@ Private Sub btnSearch_Click()
         searchColumn = "Source"
     End If
     
-    ' --- 4. Call filter function ---
-    Set foundItems = GetFilteredData(searchTerm, plantsToInclude, searchColumn)
-    
+    ' --- 4. Call filter function (with alternative flags) ---
+    Set m_alternativeFlags = New Collection
+    Set foundItems = GetFilteredData(searchTerm, plantsToInclude, searchColumn, m_alternativeFlags)
+
     ' --- 5. Display results in ListView ---
+    Dim altCount As Long
+    altCount = 0
+
     If Not foundItems Is Nothing Then
         If foundItems.Count > 0 Then
+            Dim itemIndex As Long
+            itemIndex = 0
             For Each itemData In foundItems ' itemData is an array with the values of a row
+                itemIndex = itemIndex + 1
                 ' Add first value as the main item
                 Set li = Me.lstResults.ListItems.Add(, , CStr(itemData(1)))
                 ' Add the remaining values as subitems
                 For i = 2 To UBound(itemData)
                     li.SubItems(i - 1) = CStr(itemData(i))
                 Next i
+
+                ' Apply preferential highlighting for alternatives
+                Dim isAlt As Boolean
+                isAlt = False
+                If Not m_alternativeFlags Is Nothing Then
+                    If itemIndex <= m_alternativeFlags.Count Then
+                        isAlt = CBool(m_alternativeFlags(itemIndex))
+                    End If
+                End If
+
+                If isAlt Then
+                    li.Tag = "ALT"
+                    li.ForeColor = ALT_FORECOLOR
+                    Dim si As Long
+                    For si = 1 To li.ListSubItems.Count
+                        li.ListSubItems(si).ForeColor = ALT_FORECOLOR
+                    Next si
+                    altCount = altCount + 1
+                Else
+                    li.Tag = ""
+                End If
             Next itemData
-            Me.lblStatus.Caption = foundItems.Count & " result(s) found."
+
+            ' Show count with alternative breakdown
+            If altCount > 0 Then
+                Me.lblStatus.Caption = foundItems.Count & " result(s) found (" & altCount & " preferred alternative(s) shown in green)."
+            Else
+                Me.lblStatus.Caption = foundItems.Count & " result(s) found."
+            End If
         Else
             Me.lblStatus.Caption = "No results were found for this search criteria."
         End If
@@ -293,21 +331,24 @@ Private Sub lstResults_ColumnClick(ByVal columnHeader As MSComctlLib.columnHeade
 End Sub
 
 Private Sub SortListViewByColumn(lv As MSComctlLib.ListView, ByVal colIndex As Long, ByVal ascending As Boolean)
-    
+
     ' --- 1. Exit if there is nothing to sort ---
     If lv.ListItems.Count < 2 Then Exit Sub
-    
+
     ' Turn off screen updates for the ListView for performance
     application.ScreenUpdating = False
 
-    ' --- 2. Load all ListView data into a 2D array ---
+    ' --- 2. Load all ListView data and tags into arrays ---
     ' This is much faster than reading from the ListView repeatedly.
     Dim listData() As String
+    Dim listTags() As String
     ReDim listData(1 To lv.ListItems.Count, 1 To lv.columnHeaders.Count)
+    ReDim listTags(1 To lv.ListItems.Count)
     Dim i, j, k As Long
-    
+
     For i = 1 To lv.ListItems.Count
         listData(i, 1) = lv.ListItems(i).Text
+        listTags(i) = lv.ListItems(i).Tag
         For j = 2 To lv.columnHeaders.Count
             listData(i, j) = lv.ListItems(i).SubItems(j - 1)
         Next j
@@ -318,12 +359,12 @@ Private Sub SortListViewByColumn(lv As MSComctlLib.ListView, ByVal colIndex As L
     Dim temp As String
     For i = 1 To UBound(listData, 1) - 1
         For j = i + 1 To UBound(listData, 1)
-            
+
             Dim val1 As String: val1 = listData(i, colIndex)
             Dim val2 As String: val2 = listData(j, colIndex)
-            
+
             Dim shouldSwap As Boolean
-            
+
             ' IMPROVEMENT: Check if values are numeric for proper sorting
             If IsNumeric(val1) And IsNumeric(val2) Then
                 ' Compare as numbers
@@ -334,14 +375,17 @@ Private Sub SortListViewByColumn(lv As MSComctlLib.ListView, ByVal colIndex As L
             End If
 
             If shouldSwap Then
-                ' Swap the entire rows in our array
+                ' Swap the entire rows in our array (data + tag)
                 For k = 1 To UBound(listData, 2)
                     temp = listData(i, k)
                     listData(i, k) = listData(j, k)
                     listData(j, k) = temp
                 Next k
+                temp = listTags(i)
+                listTags(i) = listTags(j)
+                listTags(j) = temp
             End If
-            
+
         Next j
     Next i
 
@@ -353,9 +397,19 @@ Private Sub SortListViewByColumn(lv As MSComctlLib.ListView, ByVal colIndex As L
         For j = 2 To UBound(listData, 2)
             li.SubItems(j - 1) = listData(i, j)
         Next j
+
+        ' Restore tag and re-apply preferential highlighting
+        li.Tag = listTags(i)
+        If li.Tag = "ALT" Then
+            li.ForeColor = ALT_FORECOLOR
+            Dim si As Long
+            For si = 1 To li.ListSubItems.Count
+                li.ListSubItems(si).ForeColor = ALT_FORECOLOR
+            Next si
+        End If
     Next i
-    
+
     ' Turn updates back on
     application.ScreenUpdating = True
-    
+
 End Sub
