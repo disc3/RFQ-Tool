@@ -48,14 +48,16 @@ Private Sub Worksheet_Change(ByVal Target As Range)
     Dim colName As String
     Dim material As String
     Dim plant As String
-    Dim matColIdx As Long, plantColIdx As Long
+    Dim productNumber As String
+    Dim matColIdx As Long, plantColIdx As Long, prodColIdx As Long
 
     On Error Resume Next
     matColIdx = loBom.ListColumns("Material").Index
     plantColIdx = loBom.ListColumns("Plant").Index
+    prodColIdx = loBom.ListColumns("Product Number").Index
     On Error GoTo 0
 
-    If matColIdx = 0 Or plantColIdx = 0 Then Exit Sub
+    If matColIdx = 0 Or plantColIdx = 0 Or prodColIdx = 0 Then Exit Sub
 
     ' Temporarily suppress events to avoid recursion
     Application.EnableEvents = False
@@ -70,18 +72,19 @@ Private Sub Worksheet_Change(ByVal Target As Range)
             ' Get the row number relative to the table
             rowNum = cell.Row - loBom.DataBodyRange.Row + 1
 
-            ' Read Material and Plant from the same row
+            ' Read Material, Plant and Product Number from the same row
             material = CStr(loBom.DataBodyRange.Cells(rowNum, matColIdx).Value)
             plant = CStr(loBom.DataBodyRange.Cells(rowNum, plantColIdx).Value)
+            productNumber = CStr(loBom.DataBodyRange.Cells(rowNum, prodColIdx).Value)
 
             ' Skip if Material is empty (incomplete row)
             If Len(Trim$(material)) > 0 Then
                 If IsEmpty(cell.Value) Or Len(Trim$(CStr(cell.Value))) = 0 Then
                     ' Cell was cleared -> remove the override
-                    ManualOverrides.RemoveOverride material, plant, colName
+                    ManualOverrides.RemoveOverride material, plant, productNumber, colName
                 Else
                     ' Cell was edited -> record the override
-                    ManualOverrides.RecordOverride material, plant, colName, cell.Value
+                    ManualOverrides.RecordOverride material, plant, productNumber, colName, cell.Value
                 End If
             End If
         End If

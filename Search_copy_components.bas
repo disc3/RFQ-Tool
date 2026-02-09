@@ -109,6 +109,10 @@ Private Function UpdateComponentDetails(targetRow As ListRow, Optional overrides
     plant = targetRow.Range(loBom.ListColumns("Plant").Index).Value
     searchKey = partNumber & " " & plant
 
+    ' Read Product Number for override key (unique per BOM row)
+    Dim productNum As String
+    productNum = CStr(targetRow.Range(loBom.ListColumns("Product Number").Index).Value)
+
     ' --- 2. VERIFY a match exists before proceeding ---
     If application.WorksheetFunction.CountIf(loData.ListColumns("MatPlantID").DataBodyRange, searchKey) > 0 Then
         dataFound = True
@@ -145,7 +149,7 @@ Private Function UpdateComponentDetails(targetRow As ListRow, Optional overrides
                     ' Check if this column has a manual override that should be preserved
                     If Not overridesDict Is Nothing Then
                         If ManualOverrides.IsProtectedColumn(col.name) Then
-                            overrideKey = partNumber & "|" & plant & "|" & col.name
+                            overrideKey = partNumber & "|" & plant & "|" & productNum & "|" & col.name
                             If overridesDict.exists(overrideKey) Then
                                 ' Override exists - skip this cell to preserve manual edit
                                 GoTo NextCol
@@ -189,7 +193,7 @@ NextCol:
         If Not targetCell.HasFormula Then
             Dim skipPrice As Boolean: skipPrice = False
             If Not overridesDict Is Nothing Then
-                overrideKey = partNumber & "|" & plant & "|Price"
+                overrideKey = partNumber & "|" & plant & "|" & productNum & "|Price"
                 If overridesDict.exists(overrideKey) Then skipPrice = True
             End If
             If Not skipPrice Then
@@ -205,7 +209,7 @@ NextCol:
         If Not targetCell.HasFormula Then
             Dim skipPriceUnit As Boolean: skipPriceUnit = False
             If Not overridesDict Is Nothing Then
-                overrideKey = partNumber & "|" & plant & "|Price Unit"
+                overrideKey = partNumber & "|" & plant & "|" & productNum & "|Price Unit"
                 If overridesDict.exists(overrideKey) Then skipPriceUnit = True
             End If
             If Not skipPriceUnit Then

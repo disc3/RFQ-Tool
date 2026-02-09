@@ -8,7 +8,7 @@ Option Explicit
 '
 ' HOW IT WORKS:
 '   - A hidden sheet "ManualOverrides" stores a table with columns:
-'     Material | Plant | ColumnHeader | OverrideValue
+'     Material | Plant | ProductNumber | ColumnHeader | OverrideValue
 '   - When a user manually edits a protected column, the Worksheet_Change event
 '     on the BOM Definition sheet calls RecordOverride to log the change.
 '   - When RefreshBOMData runs, it loads the overrides into a Dictionary and
@@ -80,14 +80,15 @@ Public Function EnsureOverridesTable() As ListObject
         ws.name = OVERRIDES_SHEET_NAME
         ws.Visible = xlSheetVeryHidden
 
-        ' Set up headers
+        ' Set up headers (5 columns: Material, Plant, ProductNumber, ColumnHeader, OverrideValue)
         ws.Range("A1").Value = "Material"
         ws.Range("B1").Value = "Plant"
-        ws.Range("C1").Value = "ColumnHeader"
-        ws.Range("D1").Value = "OverrideValue"
+        ws.Range("C1").Value = "ProductNumber"
+        ws.Range("D1").Value = "ColumnHeader"
+        ws.Range("E1").Value = "OverrideValue"
 
         ' Create table from headers
-        Set lo = ws.ListObjects.Add(xlSrcRange, ws.Range("A1:D1"), , xlYes)
+        Set lo = ws.ListObjects.Add(xlSrcRange, ws.Range("A1:E1"), , xlYes)
         lo.name = OVERRIDES_TABLE_NAME
     Else
         ' Ensure the sheet is very hidden
@@ -98,14 +99,33 @@ Public Function EnsureOverridesTable() As ListObject
         Set lo = ws.ListObjects(OVERRIDES_TABLE_NAME)
         On Error GoTo 0
 
+        ' Check if table exists and has the correct schema (5 columns with ProductNumber)
+        Dim needsRecreate As Boolean
+        needsRecreate = False
         If lo Is Nothing Then
-            ' Table missing but sheet exists - recreate
+            needsRecreate = True
+        Else
+            ' Migrate from old 4-column format to new 5-column format
+            On Error Resume Next
+            Dim testCol As ListColumn
+            Set testCol = lo.ListColumns("ProductNumber")
+            On Error GoTo 0
+            If testCol Is Nothing Then needsRecreate = True
+        End If
+
+        If needsRecreate Then
+            ' Clear and recreate with the new 5-column schema
+            If Not lo Is Nothing Then
+                If Not lo.DataBodyRange Is Nothing Then lo.DataBodyRange.Delete
+                lo.Delete
+            End If
             ws.Cells.Clear
             ws.Range("A1").Value = "Material"
             ws.Range("B1").Value = "Plant"
-            ws.Range("C1").Value = "ColumnHeader"
-            ws.Range("D1").Value = "OverrideValue"
-            Set lo = ws.ListObjects.Add(xlSrcRange, ws.Range("A1:D1"), , xlYes)
+            ws.Range("C1").Value = "ProductNumber"
+            ws.Range("D1").Value = "ColumnHeader"
+            ws.Range("E1").Value = "OverrideValue"
+            Set lo = ws.ListObjects.Add(xlSrcRange, ws.Range("A1:E1"), , xlYes)
             lo.name = OVERRIDES_TABLE_NAME
         End If
     End If
@@ -114,15 +134,17 @@ Public Function EnsureOverridesTable() As ListObject
 End Function
 
 '''
-' Records (upserts) a manual override for a specific Material + Plant + Column.
+' Records (upserts) a manual override for a specific Material + Plant + ProductNumber + Column.
 ' If an entry already exists for the same key, its value is updated.
 ' @param {String} material The material number.
 ' @param {String} plant The plant code.
+' @param {String} productNumber The product number (row-level identifier).
 ' @param {String} colHeader The column header name that was changed.
 ' @param {Variant} overrideValue The new value entered by the user.
 '''
 Public Sub RecordOverride(ByVal material As String, ByVal plant As String, _
-                          ByVal colHeader As String, ByVal overrideValue As Variant)
+                          ByVal productNumber As String, ByVal colHeader As String, _
+                          ByVal overrideValue As Variant)
     Dim lo As ListObject
     Dim rw As ListRow
     Dim i As Long
@@ -135,9 +157,10 @@ Public Sub RecordOverride(ByVal material As String, ByVal plant As String, _
             Set rw = lo.ListRows(i)
             If CStr(rw.Range(1, 1).Value) = material And _
                CStr(rw.Range(1, 2).Value) = plant And _
-               CStr(rw.Range(1, 3).Value) = colHeader Then
+               CStr(rw.Range(1, 3).Value) = productNumber And _
+               CStr(rw.Range(1, 4).Value) = colHeader Then
                 ' Update existing
-                rw.Range(1, 4).Value = overrideValue
+                rw.Range(1, 5).Value = overrideValue
                 Exit Sub
             End If
         Next i
@@ -147,19 +170,21 @@ Public Sub RecordOverride(ByVal material As String, ByVal plant As String, _
     Set rw = lo.ListRows.Add
     rw.Range(1, 1).Value = material
     rw.Range(1, 2).Value = plant
-    rw.Range(1, 3).Value = colHeader
-    rw.Range(1, 4).Value = overrideValue
+    rw.Range(1, 3).Value = productNumber
+    rw.Range(1, 4).Value = colHeader
+    rw.Range(1, 5).Value = overrideValue
 End Sub
 
 '''
-' Removes a manual override for a specific Material + Plant + Column.
+' Removes a manual override for a specific Material + Plant + ProductNumber + Column.
 ' Called when the user clears a protected cell.
 ' @param {String} material The material number.
 ' @param {String} plant The plant code.
+' @param {String} productNumber The product number (row-level identifier).
 ' @param {String} colHeader The column header name.
 '''
 Public Sub RemoveOverride(ByVal material As String, ByVal plant As String, _
-                          ByVal colHeader As String)
+                          ByVal productNumber As String, ByVal colHeader As String)
     Dim lo As ListObject
     Dim rw As ListRow
     Dim i As Long
@@ -173,7 +198,8 @@ Public Sub RemoveOverride(ByVal material As String, ByVal plant As String, _
         Set rw = lo.ListRows(i)
         If CStr(rw.Range(1, 1).Value) = material And _
            CStr(rw.Range(1, 2).Value) = plant And _
-           CStr(rw.Range(1, 3).Value) = colHeader Then
+           CStr(rw.Range(1, 3).Value) = productNumber And _
+           CStr(rw.Range(1, 4).Value) = colHeader Then
             rw.Delete
             Exit Sub
         End If
@@ -182,7 +208,7 @@ End Sub
 
 '''
 ' Loads all overrides into a Dictionary for fast O(1) lookups.
-' Key format: "material|plant|columnHeader"
+' Key format: "material|plant|productNumber|columnHeader"
 ' Value: the override value
 ' @return {Object} A Scripting.Dictionary with all overrides.
 '''
@@ -201,9 +227,10 @@ Public Function LoadOverridesDict() As Object
             Set rw = lo.ListRows(i)
             dictKey = CStr(rw.Range(1, 1).Value) & "|" & _
                       CStr(rw.Range(1, 2).Value) & "|" & _
-                      CStr(rw.Range(1, 3).Value)
+                      CStr(rw.Range(1, 3).Value) & "|" & _
+                      CStr(rw.Range(1, 4).Value)
             If Not dict.exists(dictKey) Then
-                dict.Add dictKey, rw.Range(1, 4).Value
+                dict.Add dictKey, rw.Range(1, 5).Value
             End If
         Next i
     End If
