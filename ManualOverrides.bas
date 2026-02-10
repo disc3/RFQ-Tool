@@ -141,10 +141,12 @@ End Function
 ' @param {String} productNumber The product number (row-level identifier).
 ' @param {String} colHeader The column header name that was changed.
 ' @param {Variant} overrideValue The new value entered by the user.
+' @param {String} [numberFormat=""] Optional NumberFormat from the BOM column.
 '''
 Public Sub RecordOverride(ByVal material As String, ByVal plant As String, _
                           ByVal productNumber As String, ByVal colHeader As String, _
-                          ByVal overrideValue As Variant)
+                          ByVal overrideValue As Variant, _
+                          Optional ByVal numberFormat As String = "")
     Dim lo As ListObject
     Dim rw As ListRow
     Dim i As Long
@@ -161,6 +163,7 @@ Public Sub RecordOverride(ByVal material As String, ByVal plant As String, _
                CStr(rw.Range(1, 4).Value) = colHeader Then
                 ' Update existing
                 rw.Range(1, 5).Value = overrideValue
+                If Len(numberFormat) > 0 Then rw.Range(1, 5).numberFormat = numberFormat
                 Exit Sub
             End If
         Next i
@@ -173,6 +176,7 @@ Public Sub RecordOverride(ByVal material As String, ByVal plant As String, _
     rw.Range(1, 3).Value = productNumber
     rw.Range(1, 4).Value = colHeader
     rw.Range(1, 5).Value = overrideValue
+    If Len(numberFormat) > 0 Then rw.Range(1, 5).numberFormat = numberFormat
 End Sub
 
 '''

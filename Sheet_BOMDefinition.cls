@@ -46,10 +46,14 @@ Private Sub Worksheet_Change(ByVal Target As Range)
     ' --- Process each changed cell ---
     Dim cell As Range
     Dim colName As String
-    Dim material As String
-    Dim plant As String
-    Dim productNumber As String
+    Dim material As String, plant As String, productNumber As String
     Dim matColIdx As Long, plantColIdx As Long, prodColIdx As Long
+    Dim rowNum As Long, colIdx As Long, totalRows As Long
+    Dim r As Long
+    Dim otherMat As String, otherPlant As String, otherProd As String
+    Dim otherCell As Range
+    Dim numFmt As String
+    Dim cellCleared As Boolean
 
     On Error Resume Next
     matColIdx = loBom.ListColumns("Material").Index
@@ -62,10 +66,12 @@ Private Sub Worksheet_Change(ByVal Target As Range)
     ' Temporarily suppress events to avoid recursion
     Application.EnableEvents = False
 
-    Dim rowNum As Long
+    totalRows = loBom.ListRows.Count
+
     For Each cell In isect.Cells
         ' Determine which column this cell is in
-        colName = loBom.HeaderRowRange.Cells(1, cell.Column - loBom.DataBodyRange.Column + 1).Value
+        colIdx = cell.Column - loBom.DataBodyRange.Column + 1
+        colName = loBom.HeaderRowRange.Cells(1, colIdx).Value
 
         ' Only track protected columns
         If ManualOverrides.IsProtectedColumn(colName) Then
@@ -77,15 +83,44 @@ Private Sub Worksheet_Change(ByVal Target As Range)
             plant = CStr(loBom.DataBodyRange.Cells(rowNum, plantColIdx).Value)
             productNumber = CStr(loBom.DataBodyRange.Cells(rowNum, prodColIdx).Value)
 
+            ' Get the column's NumberFormat for consistent formatting
+            numFmt = cell.numberFormat
+
             ' Skip if Material is empty (incomplete row)
             If Len(Trim$(material)) > 0 Then
-                If IsEmpty(cell.Value) Or Len(Trim$(CStr(cell.Value))) = 0 Then
+                cellCleared = IsEmpty(cell.Value) Or Len(Trim$(CStr(cell.Value))) = 0
+
+                If cellCleared Then
                     ' Cell was cleared -> remove the override
                     ManualOverrides.RemoveOverride material, plant, productNumber, colName
                 Else
-                    ' Cell was edited -> record the override
-                    ManualOverrides.RecordOverride material, plant, productNumber, colName, cell.Value
+                    ' Cell was edited -> record the override with format
+                    ManualOverrides.RecordOverride material, plant, productNumber, colName, cell.Value, numFmt
                 End If
+
+                ' --- Propagate to all other BOM rows with the same Material+Plant ---
+                For r = 1 To totalRows
+                    If r <> rowNum Then
+                        otherMat = CStr(loBom.DataBodyRange.Cells(r, matColIdx).Value)
+                        otherPlant = CStr(loBom.DataBodyRange.Cells(r, plantColIdx).Value)
+
+                        If otherMat = material And otherPlant = plant Then
+                            Set otherCell = loBom.DataBodyRange.Cells(r, colIdx)
+                            If Not otherCell.HasFormula Then
+                                otherProd = CStr(loBom.DataBodyRange.Cells(r, prodColIdx).Value)
+
+                                If cellCleared Then
+                                    otherCell.ClearContents
+                                    ManualOverrides.RemoveOverride otherMat, otherPlant, otherProd, colName
+                                Else
+                                    otherCell.Value = cell.Value
+                                    otherCell.numberFormat = numFmt
+                                    ManualOverrides.RecordOverride otherMat, otherPlant, otherProd, colName, cell.Value, numFmt
+                                End If
+                            End If
+                        End If
+                    End If
+                Next r
             End If
         End If
     Next cell
