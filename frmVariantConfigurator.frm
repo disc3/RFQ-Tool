@@ -245,6 +245,7 @@ Private Sub btnCreateVariant_Click()
     application.Calculation = xlCalculationManual
 
     ' --- 5.1. Create BOM Rows ---
+    ManualOverrides.SuppressChangeTracking = True
     For i = 1 To lvwComponents.ListItems.Count
         quantity = SafeCDbl(lvwComponents.ListItems(i).SubItems(2))
         If quantity <> 0 Then
@@ -291,6 +292,8 @@ Private Sub btnCreateVariant_Click()
             End Select
         End With
     Next colIndex
+
+    ManualOverrides.SuppressChangeTracking = False
 
     ' --- CLEANUP & NEXT STEPS ---
     Dim frmRoutine As New frmRoutineVariantEditor

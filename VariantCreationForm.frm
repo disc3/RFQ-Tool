@@ -270,6 +270,7 @@ Private Sub btnCreateVariants_Click()
     Debug.Print "Highest Variant: " & highestVariant
     Debug.Print "Starting nextVariant at: " & nextVariant
 
+    ManualOverrides.SuppressChangeTracking = True
     For i = 1 To NumVariants
         Debug.Print "Creating variant: " & variantName
 
@@ -330,6 +331,7 @@ Private Sub btnCreateVariants_Click()
 
         nextVariant = nextVariant + 1 ' Increment for next variant
     Next i
+    ManualOverrides.SuppressChangeTracking = False
 
     ' ---------------------------
     ' Show Form to Select Base Routine

@@ -152,6 +152,7 @@ Sub DeleteAllProducts()
         ClearSelectedRoutinesTable
         ClearProjectDataColumns
         ClearMassUploadTable
+        ManualOverrides.ClearAllOverrides
         application.DisplayAlerts = True
         application.EnableEvents = True
         application.ScreenUpdating = True
