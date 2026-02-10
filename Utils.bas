@@ -40,8 +40,8 @@ Private Sub FixBOMDefinitionDecimalSeparators()
         
         If Not col Is Nothing Then
             For Each cell In col.DataBodyRange
-                If Not IsEmpty(cell.Value) And VarType(cell.Value) = vbString Then
-                    cell.Value = FixDecimalSeparator(cell.Value)
+                If Not IsEmpty(cell.value) And VarType(cell.value) = vbString Then
+                    cell.value = FixDecimalSeparator(cell.value)
                 End If
             Next cell
         End If
@@ -68,8 +68,8 @@ Private Sub FixSelectedRoutinesDecimalSeparators()
         If Not col Is Nothing Then
             If Not col.DataBodyRange Is Nothing Then
                 For Each cell In col.DataBodyRange
-                    If Not IsEmpty(cell.Value) And VarType(cell.Value) = vbString Then
-                        cell.Value = FixDecimalSeparator(cell.Value)
+                    If Not IsEmpty(cell.value) And VarType(cell.value) = vbString Then
+                        cell.value = FixDecimalSeparator(cell.value)
                     End If
                 Next cell
             End If
@@ -236,7 +236,10 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
     Dim wsData As Worksheet: Set wsData = ThisWorkbook.Sheets(associatedSheetname)
     Dim tblAssociatedData As ListObject: Set tblAssociatedData = wsData.ListObjects(associatedTableName)
     
-    ' --- FORCE RECALCULATION (needed when called after xlCalculationManual, e.g. variant creation) ---
+    ' --- ENSURE FORMULAS ARE CALCULATED ---
+    ' When called after adding rows in manual calculation mode (e.g., during variant creation),
+    ' formula columns like ProductNumberText and Helper Format may not yet be evaluated.
+    ' Force a recalculation of the relevant sheets before reading any data.
     wsProducts.Calculate
     wsData.Calculate
 
@@ -248,7 +251,7 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
     If tblAssociatedData.ListRows.Count = 1 Then
         Dim firstVal As Variant
         ' Note: Using "ProductNumberText" as per your previous target table logic
-        firstVal = tblAssociatedData.DataBodyRange(1, tblAssociatedData.ListColumns("ProductNumberText").Index).Value
+        firstVal = tblAssociatedData.DataBodyRange(1, tblAssociatedData.ListColumns("ProductNumberText").Index).value
         
         If IsEmpty(firstVal) Or Trim(CStr(firstVal)) = "" Then
             ' Table contains only a placeholder row. Exit.
@@ -287,11 +290,11 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
     If rngSourceProd.Cells.Count = 1 Then
         ReDim arrSourceProd(1 To 1, 1 To 1)
         ReDim arrSourceHelper(1 To 1, 1 To 1)
-        arrSourceProd(1, 1) = rngSourceProd.Value
-        arrSourceHelper(1, 1) = rngSourceHelper.Value
+        arrSourceProd(1, 1) = rngSourceProd.value
+        arrSourceHelper(1, 1) = rngSourceHelper.value
     Else
-        arrSourceProd = rngSourceProd.Value
-        arrSourceHelper = rngSourceHelper.Value
+        arrSourceProd = rngSourceProd.value
+        arrSourceHelper = rngSourceHelper.value
     End If
     
     Dim i As Long
@@ -318,9 +321,9 @@ Sub RunProductBasedFormatting(associatedSheetname As String, associatedTableName
     ' *** FIX: Handle Single Row Case for Target ***
     If rngTargetProd.Cells.Count = 1 Then
         ReDim arrTargetProd(1 To 1, 1 To 1)
-        arrTargetProd(1, 1) = rngTargetProd.Value
+        arrTargetProd(1, 1) = rngTargetProd.value
     Else
-        arrTargetProd = rngTargetProd.Value
+        arrTargetProd = rngTargetProd.value
     End If
     
     Dim rngC1_Dark As Range, rngC1_Light As Range

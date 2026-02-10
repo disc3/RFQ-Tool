@@ -13,6 +13,7 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
+
 '@Module VBE.UserForm.frmRoutineVariantEditor
 '@Author Coding-Assistent
 '@Date 2025-10-18
@@ -309,7 +310,7 @@ Private Function GetTableFilteredData(tbl As ListObject, fieldName As String, cr
             If getFormulas Then
                 singleRowArray(1, c) = visibleRows.Cells(1, c).Formula
             Else
-                singleRowArray(1, c) = visibleRows.Cells(1, c).Value
+                singleRowArray(1, c) = visibleRows.Cells(1, c).value
             End If
         Next c
         GetTableFilteredData = singleRowArray
@@ -318,7 +319,7 @@ Private Function GetTableFilteredData(tbl As ListObject, fieldName As String, cr
         If getFormulas Then
             GetTableFilteredData = visibleRows.Formula
         Else
-            GetTableFilteredData = visibleRows.Value
+            GetTableFilteredData = visibleRows.value
         End If
     End If
 End Function
