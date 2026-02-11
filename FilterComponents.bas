@@ -77,10 +77,6 @@ Function GetFilteredData(userInput As String, plantsToInclude As Collection, sea
     plantColumnIndex = lo.ListColumns(searchColumnName).Index
     On Error GoTo 0 ' Fehlerbehandlung zur�cksetzen
 
-    ' Material column index for alternative lookups
-    Dim materialColumnIndex As Long
-    materialColumnIndex = lo.ListColumns("Material").Index
-
     ' --- 3. Filter-Setup ---
     Set results = New Collection
     preFilterActive = (plantsToInclude.Count > 0 And plantColumnIndex > 0)
@@ -103,18 +99,29 @@ Function GetFilteredData(userInput As String, plantsToInclude As Collection, sea
     Dim useAlternatives As Boolean
     Dim addedKeys As Object
     Dim matchedMaterials As Object
+    Dim materialColumnIndex As Long
 
     useAlternatives = False
+    materialColumnIndex = 0
     If Trim(userInput) <> "" Then
         Set altDict = LoadAlternativesDict()
         If Not altDict Is Nothing Then
-            useAlternatives = True
-            Set matIndexDict = BuildMaterialRowIndex(dataArr, materialColumnIndex)
-            Set outIsAlternative = New Collection
-            Set addedKeys = CreateObject("Scripting.Dictionary")
-            addedKeys.CompareMode = vbTextCompare
-            Set matchedMaterials = CreateObject("Scripting.Dictionary")
-            matchedMaterials.CompareMode = vbTextCompare
+            ' Resolve Material column index - only needed when alternatives are active
+            On Error Resume Next
+            materialColumnIndex = lo.ListColumns("Material").Index
+            On Error GoTo 0
+            If materialColumnIndex = 0 Then
+                ' Material column not found - disable alternatives gracefully
+                Set altDict = Nothing
+            Else
+                useAlternatives = True
+                Set matIndexDict = BuildMaterialRowIndex(dataArr, materialColumnIndex)
+                Set outIsAlternative = New Collection
+                Set addedKeys = CreateObject("Scripting.Dictionary")
+                addedKeys.CompareMode = vbTextCompare
+                Set matchedMaterials = CreateObject("Scripting.Dictionary")
+                matchedMaterials.CompareMode = vbTextCompare
+            End If
         End If
     End If
 
@@ -158,20 +165,23 @@ Function GetFilteredData(userInput As String, plantsToInclude As Collection, sea
             If useAlternatives Then
                 outIsAlternative.Add False ' Direct match, not an alternative
 
-                Dim matVal As String
-                matVal = LCase(Trim(CStr(dataArr(i, materialColumnIndex))))
+                ' Guard against error values in Material column
+                If Not IsError(dataArr(i, materialColumnIndex)) Then
+                    Dim matVal As String
+                    matVal = LCase(Trim(CStr(dataArr(i, materialColumnIndex))))
 
-                ' Track Material+Plant for deduplication
-                Dim dedupKey As String
-                If plantColumnIndex > 0 Then
-                    dedupKey = matVal & "|" & LCase(Trim(CStr(dataArr(i, plantColumnIndex))))
-                Else
-                    dedupKey = matVal & "|"
+                    ' Track Material+Plant for deduplication
+                    Dim dedupKey As String
+                    If plantColumnIndex > 0 Then
+                        dedupKey = matVal & "|" & LCase(Trim(CStr(dataArr(i, plantColumnIndex))))
+                    Else
+                        dedupKey = matVal & "|"
+                    End If
+                    If Not addedKeys.Exists(dedupKey) Then addedKeys.Add dedupKey, True
+
+                    ' Track unique materials for post-loop alternative lookup
+                    If Not matchedMaterials.Exists(matVal) Then matchedMaterials.Add matVal, True
                 End If
-                If Not addedKeys.Exists(dedupKey) Then addedKeys.Add dedupKey, True
-
-                ' Track unique materials for post-loop alternative lookup
-                If Not matchedMaterials.Exists(matVal) Then matchedMaterials.Add matVal, True
             End If
         End If
 
@@ -281,8 +291,16 @@ Private Function LoadAlternativesDict() As Object
     Set dict = CreateObject("Scripting.Dictionary")
     dict.CompareMode = vbTextCompare ' Case-insensitive keys
 
+    ' Safely resolve column indices - return Nothing if columns are misnamed
+    On Error Resume Next
     srcColIdx = lo.ListColumns(ALT_SOURCE_COL).Index
     altColIdx = lo.ListColumns(ALT_TARGET_COL).Index
+    On Error GoTo 0
+    If srcColIdx = 0 Or altColIdx = 0 Then
+        Set LoadAlternativesDict = Nothing
+        Exit Function
+    End If
+
     altArr = lo.DataBodyRange.Value2
 
     For i = 1 To UBound(altArr, 1)
@@ -317,6 +335,7 @@ Private Function BuildMaterialRowIndex(dataArr As Variant, materialColIdx As Lon
     dict.CompareMode = vbTextCompare
 
     For i = 1 To UBound(dataArr, 1)
+        If IsError(dataArr(i, materialColIdx)) Then GoTo NextIndexRow
         matKey = Trim(CStr(dataArr(i, materialColIdx)))
         If matKey <> "" Then
             If Not dict.Exists(matKey) Then
@@ -324,6 +343,7 @@ Private Function BuildMaterialRowIndex(dataArr As Variant, materialColIdx As Lon
             End If
             dict(matKey).Add i
         End If
+NextIndexRow:
     Next i
 
     Set BuildMaterialRowIndex = dict
